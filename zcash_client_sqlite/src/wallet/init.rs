@@ -485,7 +485,7 @@ mod tests {
                        COUNT(DISTINCT sent_notes.id_note) as sent_notes,
                        SUM(
                          CASE
-                           WHEN (sent_notes.memo IS NULL OR sent_notes.memo = X'F6')
+                           WHEN (sent_notes.memo IS NULL OR sent_notes.memo = X'F6' OR sapling_received_notes.tx IS NOT NULL)
                              THEN 0
                            ELSE 1
                          END
@@ -517,7 +517,7 @@ mod tests {
                    blocks.time                       AS block_time,
                    (
                         blocks.height IS NULL
-                        AND transactions.expiry_height <= blocks_max_height.max_height
+                        AND transactions.expiry_height BETWEEN 1 AND blocks_max_height.max_height
                    ) AS expired_unmined
             FROM notes
             LEFT OUTER JOIN transactions
