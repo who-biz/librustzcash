@@ -7,7 +7,10 @@ use std::io::{self, Read, Write};
 
 use crate::legacy::{Script, TransparentAddress};
 
-use super::amount::{Amount, BalanceError, NonNegativeAmount};
+use super::{
+    amount::{Amount, BalanceError, NonNegativeAmount},
+    AuthorizedTransparentPart, Transparent,
+};
 
 pub mod builder;
 
@@ -201,6 +204,8 @@ impl TxOut {
         self.script_pubkey.address()
     }
 }
+
+impl AuthorizedTransparentPart for Transparent<Authorized> {}
 
 #[cfg(any(test, feature = "test-dependencies"))]
 pub mod testing {

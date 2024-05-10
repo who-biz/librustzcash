@@ -7,7 +7,7 @@ use std::io::{self, Read, Write};
 
 use zcash_encoding::{CompactSize, Vector};
 
-use super::amount::Amount;
+use super::{amount::Amount, AuthorizedTzePart, Tze};
 use crate::{extensions::transparent as tze, transaction::TxId};
 
 pub mod builder;
@@ -210,6 +210,8 @@ impl TzeOut {
         })
     }
 }
+
+impl AuthorizedTzePart for Tze<Authorized> {}
 
 #[cfg(any(test, feature = "test-dependencies"))]
 pub mod testing {
