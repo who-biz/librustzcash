@@ -20,6 +20,8 @@ use tracing::{debug, error};
 
 use super::{Client, Error};
 
+mod exchange_rate;
+
 impl Client {
     #[tracing::instrument(skip(self, h, f))]
     async fn get<T, F: Future<Output = Result<T, Error>>>(

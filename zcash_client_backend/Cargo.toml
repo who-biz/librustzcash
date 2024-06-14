@@ -102,6 +102,10 @@ arti-client = { workspace = true, optional = true }
 hyper = { workspace = true, optional = true, features = ["client", "http1"] }
 serde_json = { workspace = true, optional = true }
 
+# - Currency conversion
+iso_currency = { workspace = true, optional = true }
+rust_decimal = { workspace = true, optional = true }
+
 # Dependencies used internally:
 # (Breaking upgrades to these are usually backwards-compatible, but check MSRVs.)
 # - Documentation
@@ -176,6 +180,9 @@ tor = [
     "dep:http-body-util",
     "dep:hyper",
     "dep:hyper-util",
+    "dep:iso_currency",
+    "dep:rand",
+    "dep:rust_decimal",
     "dep:serde",
     "dep:serde_json",
     "dep:tokio",
