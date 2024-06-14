@@ -388,10 +388,6 @@ criteria = "safe-to-deploy"
 version = "0.9.0"
 criteria = "safe-to-deploy"
 
-[[exemptions.digest]]
-version = "0.10.7"
-criteria = "safe-to-deploy"
-
 [[exemptions.directories]]
 version = "5.0.1"
 criteria = "safe-to-deploy"
@@ -588,8 +584,16 @@ criteria = "safe-to-deploy"
 version = "0.14.27"
 criteria = "safe-to-deploy"
 
+[[exemptions.hyper]]
+version = "1.3.1"
+criteria = "safe-to-deploy"
+
 [[exemptions.hyper-timeout]]
 version = "0.4.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.hyper-util]]
+version = "0.1.5"
 criteria = "safe-to-deploy"
 
 [[exemptions.iana-time-zone]]
