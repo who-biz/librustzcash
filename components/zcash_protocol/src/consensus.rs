@@ -348,12 +348,12 @@ impl Parameters for MainNetwork {
 
     fn activation_height(&self, nu: NetworkUpgrade) -> Option<BlockHeight> {
         match nu {
-            NetworkUpgrade::Overwinter => Some(BlockHeight(347_500)),
-            NetworkUpgrade::Sapling => Some(BlockHeight(419_200)),
-            NetworkUpgrade::Blossom => Some(BlockHeight(653_600)),
-            NetworkUpgrade::Heartwood => Some(BlockHeight(903_000)),
-            NetworkUpgrade::Canopy => Some(BlockHeight(1_046_400)),
-            NetworkUpgrade::Nu5 => Some(BlockHeight(1_687_104)),
+            NetworkUpgrade::Overwinter => Some(BlockHeight(227_520)),
+            NetworkUpgrade::Sapling => Some(BlockHeight(227_520)),
+            NetworkUpgrade::Blossom => None,
+            NetworkUpgrade::Heartwood => None,
+            NetworkUpgrade::Canopy => None,
+            NetworkUpgrade::Nu5 => None,
             #[cfg(zcash_unstable = "nu6")]
             NetworkUpgrade::Nu6 => None,
             #[cfg(zcash_unstable = "zfuture")]
