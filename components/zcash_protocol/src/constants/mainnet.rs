@@ -5,6 +5,10 @@
 /// [SLIP 44]: https://github.com/satoshilabs/slips/blob/master/slip-0044.md
 pub const COIN_TYPE: u32 = 133;
 
+/// TODO: Verus source code also has 133 as coinType constant, but there is a comment indicating
+/// that this is for Zcash, and should be verus. Ask about this
+
+
 /// The HRP for a Bech32-encoded mainnet Sapling [`ExtendedSpendingKey`].
 ///
 /// Defined in [ZIP 32].
@@ -39,12 +43,12 @@ pub const B58_SPROUT_ADDRESS_PREFIX: [u8; 2] = [0x16, 0x9a];
 /// The prefix for a Base58Check-encoded mainnet [`PublicKeyHash`].
 ///
 /// [`PublicKeyHash`]: https://docs.rs/zcash_primitives/latest/zcash_primitives/legacy/enum.TransparentAddress.html
-pub const B58_PUBKEY_ADDRESS_PREFIX: [u8; 2] = [0x1c, 0xb8];
+pub const B58_PUBKEY_ADDRESS_PREFIX: [u8; 2] = [0x01, 0x3c];
 
 /// The prefix for a Base58Check-encoded mainnet [`ScriptHash`].
 ///
 /// [`ScriptHash`]: https://docs.rs/zcash_primitives/latest/zcash_primitives/legacy/enum.TransparentAddress.html
-pub const B58_SCRIPT_ADDRESS_PREFIX: [u8; 2] = [0x1c, 0xbd];
+pub const B58_SCRIPT_ADDRESS_PREFIX: [u8; 2] = [0x01, 0x55];
 
 /// The HRP for a Bech32m-encoded mainnet [ZIP 320] TEX address.
 ///
