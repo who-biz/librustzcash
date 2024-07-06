@@ -97,7 +97,7 @@ impl<P: consensus::Parameters> RusqliteMigration for Migration<P> {
                 )",
             16, // ORCHARD_SHARD_HEIGHT is only available when `feature = "orchard"` is enabled.
             16, // ORCHARD_SHARD_HEIGHT is only available when `feature = "orchard"` is enabled.
-            u32::from(self.params.activation_height(NetworkUpgrade::Nu5).unwrap()),
+            u32::from(self.params.activation_height(NetworkUpgrade::Nu5).unwrap_or(u32::MAX.into())),
         ))?;
 
         transaction.execute_batch(&format!(
