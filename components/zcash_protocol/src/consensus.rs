@@ -176,20 +176,20 @@ pub trait NetworkConstants: Clone {
     /// Defined in the [Zcash Protocol Specification section 5.6.3][sproutpaymentaddrencoding].
     ///
     /// [sproutpaymentaddrencoding]: https://zips.z.cash/protocol/protocol.pdf#sproutpaymentaddrencoding
-    fn b58_sprout_address_prefix(&self) -> [u8; 2];
+    fn b58_sprout_address_prefix(&self) -> [u8; 1];
 
     /// Returns the human-readable prefix for Base58Check-encoded transparent
     /// pay-to-public-key-hash payment addresses for the network to which this NetworkConstants value
     /// applies.
     ///
     /// [`TransparentAddress::PublicKey`]: zcash_primitives::legacy::TransparentAddress::PublicKey
-    fn b58_pubkey_address_prefix(&self) -> [u8; 2];
+    fn b58_pubkey_address_prefix(&self) -> [u8; 1];
 
     /// Returns the human-readable prefix for Base58Check-encoded transparent pay-to-script-hash
     /// payment addresses for the network to which this NetworkConstants value applies.
     ///
     /// [`TransparentAddress::Script`]: zcash_primitives::legacy::TransparentAddress::Script
-    fn b58_script_address_prefix(&self) -> [u8; 2];
+    fn b58_script_address_prefix(&self) -> [u8; 1];
 
     /// Returns the Bech32-encoded human-readable prefix for TEX addresses, for the
     /// network to which this `NetworkConstants` value applies.
@@ -249,7 +249,7 @@ impl NetworkConstants for NetworkType {
         }
     }
 
-    fn b58_sprout_address_prefix(&self) -> [u8; 2] {
+    fn b58_sprout_address_prefix(&self) -> [u8; 1] {
         match self {
             NetworkType::Main => mainnet::B58_SPROUT_ADDRESS_PREFIX,
             NetworkType::Test => testnet::B58_SPROUT_ADDRESS_PREFIX,
@@ -257,7 +257,7 @@ impl NetworkConstants for NetworkType {
         }
     }
 
-    fn b58_pubkey_address_prefix(&self) -> [u8; 2] {
+    fn b58_pubkey_address_prefix(&self) -> [u8; 1] {
         match self {
             NetworkType::Main => mainnet::B58_PUBKEY_ADDRESS_PREFIX,
             NetworkType::Test => testnet::B58_PUBKEY_ADDRESS_PREFIX,
@@ -265,7 +265,7 @@ impl NetworkConstants for NetworkType {
         }
     }
 
-    fn b58_script_address_prefix(&self) -> [u8; 2] {
+    fn b58_script_address_prefix(&self) -> [u8; 1] {
         match self {
             NetworkType::Main => mainnet::B58_SCRIPT_ADDRESS_PREFIX,
             NetworkType::Test => testnet::B58_SCRIPT_ADDRESS_PREFIX,
@@ -315,15 +315,15 @@ impl<P: Parameters> NetworkConstants for P {
         self.network_type().hrp_sapling_payment_address()
     }
 
-    fn b58_sprout_address_prefix(&self) -> [u8; 2] {
+    fn b58_sprout_address_prefix(&self) -> [u8; 1] {
         self.network_type().b58_sprout_address_prefix()
     }
 
-    fn b58_pubkey_address_prefix(&self) -> [u8; 2] {
+    fn b58_pubkey_address_prefix(&self) -> [u8; 1] {
         self.network_type().b58_pubkey_address_prefix()
     }
 
-    fn b58_script_address_prefix(&self) -> [u8; 2] {
+    fn b58_script_address_prefix(&self) -> [u8; 1] {
         self.network_type().b58_script_address_prefix()
     }
 

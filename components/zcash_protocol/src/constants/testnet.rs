@@ -34,17 +34,17 @@ pub const HRP_SAPLING_PAYMENT_ADDRESS: &str = "ztestsapling";
 /// Defined in the [Zcash Protocol Specification section 5.6.3][sproutpaymentaddrencoding].
 ///
 /// [sproutpaymentaddrencoding]: https://zips.z.cash/protocol/protocol.pdf#sproutpaymentaddrencoding
-pub const B58_SPROUT_ADDRESS_PREFIX: [u8; 2] = [0x16, 0xb6];
+pub const B58_SPROUT_ADDRESS_PREFIX: [u8; 1] = [0xb6];
 
 /// The prefix for a Base58Check-encoded testnet transparent [`PublicKeyHash`].
 ///
 /// [`PublicKeyHash`]: https://docs.rs/zcash_primitives/latest/zcash_primitives/legacy/enum.TransparentAddress.html
-pub const B58_PUBKEY_ADDRESS_PREFIX: [u8; 2] = [0x1d, 0x25];
+pub const B58_PUBKEY_ADDRESS_PREFIX: [u8; 1] = [0x25];
 
 /// The prefix for a Base58Check-encoded testnet transparent [`ScriptHash`].
 ///
 /// [`ScriptHash`]: https://docs.rs/zcash_primitives/latest/zcash_primitives/legacy/enum.TransparentAddress.html
-pub const B58_SCRIPT_ADDRESS_PREFIX: [u8; 2] = [0x1c, 0xba];
+pub const B58_SCRIPT_ADDRESS_PREFIX: [u8; 1] = [0xba];
 
 /// The HRP for a Bech32m-encoded testnet [ZIP 320] TEX address.
 ///

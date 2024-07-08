@@ -110,7 +110,7 @@ impl FromStr for ZcashAddress {
 
         // The rest use Base58Check.
         if let Ok(decoded) = bs58::decode(s).with_check(None).into_vec() {
-            if decoded.len() >= 2 {
+            if decoded.len() >= 1 {
                 let (prefix, net) = match decoded[..2].try_into().unwrap() {
                     prefix @ (mainnet::B58_PUBKEY_ADDRESS_PREFIX
                     | mainnet::B58_SCRIPT_ADDRESS_PREFIX
@@ -127,7 +127,7 @@ impl FromStr for ZcashAddress {
                         decoded[2..].try_into().map(AddressKind::Sprout)
                     }
                     mainnet::B58_PUBKEY_ADDRESS_PREFIX | testnet::B58_PUBKEY_ADDRESS_PREFIX => {
-                        decoded[2..].try_into().map(AddressKind::P2pkh)
+                        decoded[1..].try_into().map(AddressKind::P2pkh)
                     }
                     mainnet::B58_SCRIPT_ADDRESS_PREFIX | testnet::B58_SCRIPT_ADDRESS_PREFIX => {
                         decoded[2..].try_into().map(AddressKind::P2sh)
@@ -148,7 +148,7 @@ fn encode_bech32(hrp: &str, data: &[u8], variant: Variant) -> String {
     bech32::encode(hrp, data.to_base32(), variant).expect("hrp is invalid")
 }
 
-fn encode_b58(prefix: [u8; 2], data: &[u8]) -> String {
+fn encode_b58(prefix: [u8; 1], data: &[u8]) -> String {
     let mut bytes = Vec::with_capacity(2 + data.len());
     bytes.extend_from_slice(&prefix);
     bytes.extend_from_slice(data);
