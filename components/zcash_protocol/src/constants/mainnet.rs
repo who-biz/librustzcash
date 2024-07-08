@@ -43,7 +43,7 @@ pub const B58_SPROUT_ADDRESS_PREFIX: [u8; 2] = [0x16, 0x9a];
 /// The prefix for a Base58Check-encoded mainnet [`PublicKeyHash`].
 ///
 /// [`PublicKeyHash`]: https://docs.rs/zcash_primitives/latest/zcash_primitives/legacy/enum.TransparentAddress.html
-pub const B58_PUBKEY_ADDRESS_PREFIX: [u8; 2] = [0x01, 0x3c];
+pub const B58_PUBKEY_ADDRESS_PREFIX: [u8; 2] = [0, 60];
 
 /// The prefix for a Base58Check-encoded mainnet [`ScriptHash`].
 ///
