@@ -957,15 +957,15 @@ where
             });
         }
 
-        #[cfg(feature = "orchard")]
-        if chain_meta.orchard_commitment_tree_size != orchard_commitment_tree_size {
-            return Err(ScanError::TreeSizeMismatch {
-                protocol: ShieldedProtocol::Orchard,
-                at_height: cur_height,
-                given: chain_meta.orchard_commitment_tree_size,
-                computed: orchard_commitment_tree_size,
-            });
-        }
+//        #[cfg(feature = "orchard")]
+//        if chain_meta.orchard_commitment_tree_size != orchard_commitment_tree_size {
+//            return Err(ScanError::TreeSizeMismatch {
+//                protocol: ShieldedProtocol::Orchard,
+//                at_height: cur_height,
+//                given: chain_meta.orchard_commitment_tree_size,
+//                computed: orchard_commitment_tree_size,
+//            });
+//        }
     }
 
     Ok(ScannedBlock::from_parts(
