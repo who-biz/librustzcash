@@ -27,14 +27,17 @@ use {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {
-    InvalidAddress,
+    InvalidAddress {
+	calculated: String,
+	expected: String,
+    },
     InvalidAmount,
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Error::InvalidAddress => write!(f, "Invalid address"),
+            Error::InvalidAddress { calculated, expected } => write!(f, "Invalid address, calculated {:?}, expected {:?}", calculated, expected),
             Error::InvalidAmount => write!(f, "Invalid amount"),
         }
     }
@@ -122,10 +125,16 @@ impl TransparentBuilder {
                 use sha2::Sha256;
 
                 if hash[..] != Ripemd160::digest(Sha256::digest(pubkey))[..] {
-                    return Err(Error::InvalidAddress);
+                    return Err(Error::InvalidAddress {
+			calculated: String::from_utf8_lossy(&hash[..]).to_string(),
+			expected: String::from_utf8_lossy(&Ripemd160::digest(Sha256::digest(pubkey))[..]).to_string(),
+		});
                 }
             }
-            _ => return Err(Error::InvalidAddress),
+            _ => return Err(Error::InvalidAddress {
+			calculated: "xxxx".to_string(),
+			expected: "xxxx".to_string(),
+		}),
         }
 
         self.inputs.push(TransparentInputInfo {
