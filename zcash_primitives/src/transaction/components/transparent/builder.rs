@@ -126,8 +126,8 @@ impl TransparentBuilder {
 
                 if hash[..] != Ripemd160::digest(Sha256::digest(pubkey))[..] {
                     return Err(Error::InvalidAddress {
-			calculated: String::from_utf8_lossy(&hash[..]).to_string(),
-			expected: String::from_utf8_lossy(&Ripemd160::digest(Sha256::digest(pubkey))[..]).to_string(),
+			calculated: String::from_utf8(hash[..].to_vec()).unwrap(),
+			expected: String::from_utf8(Ripemd160::digest(Sha256::digest(pubkey))[..].to_vec()).unwrap(),
 		});
                 }
             }
