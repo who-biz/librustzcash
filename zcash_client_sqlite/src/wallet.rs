@@ -363,9 +363,11 @@ pub(crate) fn add_account<P: consensus::Parameters>(
         AccountSource::Imported => (None, None),
     };
 
+    #[cfg(feature = "orchard")]
     let orchard_item = viewing_key
         .ufvk()
         .and_then(|ufvk| ufvk.orchard().map(|k| k.to_bytes()));
+
     let sapling_item = viewing_key
         .ufvk()
         .and_then(|ufvk| ufvk.sapling().map(|k| k.to_bytes()));
@@ -400,6 +402,8 @@ pub(crate) fn add_account<P: consensus::Parameters>(
         )
         RETURNING id;
         "#,
+
+	#[cfg(feature = "orchard")]
         named_params![
             ":account_kind": account_kind_code(kind),
             ":hd_seed_fingerprint": hd_seed_fingerprint.as_ref().map(|fp| fp.to_bytes()),
@@ -414,6 +418,22 @@ pub(crate) fn add_account<P: consensus::Parameters>(
             ":birthday_orchard_tree_size": birthday_orchard_tree_size,
             ":recover_until_height": birthday.recover_until().map(u32::from)
         ],
+
+	#[cfg(not(feature = "orchard"))]
+        named_params![
+            ":account_kind": account_kind_code(kind),
+            ":hd_seed_fingerprint": hd_seed_fingerprint.as_ref().map(|fp| fp.to_bytes()),
+            ":hd_account_index": hd_account_index.map(u32::from),
+            ":ufvk": viewing_key.ufvk().map(|ufvk| ufvk.encode(params)),
+            ":uivk": viewing_key.uivk().encode(params),
+            ":sapling_fvk_item_cache": sapling_item,
+            ":p2pkh_fvk_item_cache": transparent_item,
+            ":birthday_height": u32::from(birthday.height()),
+            ":birthday_sapling_tree_size": birthday_sapling_tree_size,
+            ":birthday_orchard_tree_size": birthday_orchard_tree_size,
+            ":recover_until_height": birthday.recover_until().map(u32::from)
+        ],
+
         |row| Ok(AccountId(row.get(0)?)),
     )?;
 
@@ -764,11 +784,19 @@ pub(crate) fn get_account_for_ufvk<P: consensus::Parameters>(
 
     let accounts = stmt
         .query_and_then::<_, SqliteClientError, _, _>(
+
+	#[cfg(feature = "orchard")]
             named_params![
                 ":orchard_fvk_item_cache": ufvk.orchard().map(|k| k.to_bytes()),
                 ":sapling_fvk_item_cache": ufvk.sapling().map(|k| k.to_bytes()),
                 ":p2pkh_fvk_item_cache": transparent_item,
             ],
+	#[cfg(not(feature = "orchard"))] 
+            named_params![
+                ":sapling_fvk_item_cache": ufvk.sapling().map(|k| k.to_bytes()),
+                ":p2pkh_fvk_item_cache": transparent_item,
+            ],
+
             |row| {
                 let account_id = row.get::<_, u32>(0).map(AccountId)?;
                 let kind = parse_account_source(row.get(1)?, row.get(2)?, row.get(3)?)?;

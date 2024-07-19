@@ -208,6 +208,7 @@ impl<P: consensus::Parameters> RusqliteMigration for Migration<P> {
                             :recover_until_height
                         );
                         "#,
+			#[cfg(feature = "orchard")]
                         named_params![
                             ":account_id": account_id,
                             ":account_kind": account_kind_derived,
@@ -223,6 +224,23 @@ impl<P: consensus::Parameters> RusqliteMigration for Migration<P> {
                             ":birthday_orchard_tree_size": birthday_orchard_tree_size,
                             ":recover_until_height": recover_until_height,
                         ],
+
+			#[cfg(not(feature = "orchard"))]
+                        named_params![
+                            ":account_id": account_id,
+                            ":account_kind": account_kind_derived,
+                            ":seed_id": seed_id.to_bytes(),
+                            ":account_index": account_index,
+                            ":ufvk": ufvk,
+                            ":uivk": uivk,
+                            ":sapling_fvk_item_cache": ufvk_parsed.sapling().map(|k| k.to_bytes()),
+                            ":p2pkh_fvk_item_cache": transparent_item,
+                            ":birthday_height": birthday_height,
+                            ":birthday_sapling_tree_size": birthday_sapling_tree_size,
+                            ":birthday_orchard_tree_size": birthday_orchard_tree_size,
+                            ":recover_until_height": recover_until_height,
+                        ],
+
                     )?;
                 }
             } else {
