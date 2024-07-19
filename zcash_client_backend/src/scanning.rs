@@ -716,12 +716,8 @@ where
                                     } else {
                                         Err(ScanError::TreeSizeUnknown {
                                             protocol: ShieldedProtocol::Sapling,
-                                            at_height: 100.into(),
+                                            at_height: cur_height,
                                         })
-//                                        Err(ScanError::TreeSizeUnknown {
-//                                            protocol: ShieldedProtocol::Sapling,
- //                                           at_height: cur_height,
-  //                                      })
                                     }
                                 },
                             )
