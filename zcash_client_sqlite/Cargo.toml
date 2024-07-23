@@ -80,6 +80,9 @@ uuid = "1.1"
 document-features.workspace = true
 maybe-rayon.workspace = true
 
+[target.'cfg(target_os = "android")'.dependencies]
+android_logger = "0.14.1"
+
 [dev-dependencies]
 assert_matches.workspace = true
 bls12_381.workspace = true
