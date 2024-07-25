@@ -29,12 +29,6 @@ use crate::{
     ShieldedProtocol,
 };
 
-#[cfg(target_os = "android")]
-use log::LevelFilter;
-
-#[cfg(target_os = "android")]
-use android_logger::Config;
-
 #[cfg(feature = "orchard")]
 use orchard::{
     note_encryption::{CompactAction, OrchardDomain},
@@ -500,13 +494,6 @@ where
     AccountId: Default + Eq + Hash + ConditionallySelectable + Send + 'static,
     IvkTag: Copy + std::hash::Hash + Eq + Send + 'static,
 {
-    // Init android logger here til we can find a lower function
-    #[cfg(target_os = "android")]
-    android_logger::init_once(
-        Config::default().with_max_level(LevelFilter::Trace)
-	.with_tag("biztag"),
-    );
-
     scan_block_with_runners::<_, _, _, (), ()>(
         params,
         block,
