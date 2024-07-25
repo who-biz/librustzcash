@@ -12,7 +12,7 @@ use sapling::{
 };
 use subtle::{ConditionallySelectable, ConstantTimeEq, CtOption};
 
-use tracing::{debug, trace};
+use tracing::{debug, trace, warn};
 use zcash_keys::keys::UnifiedFullViewingKey;
 use zcash_note_encryption::{batch, BatchDomain, Domain, ShieldedOutput, COMPACT_NOTE_SIZE};
 use zcash_primitives::{
@@ -29,10 +29,10 @@ use crate::{
     ShieldedProtocol,
 };
 
-#[macro_use] extern crate log;
-extern crate android_logger;
-
+#[cfg(target_os = "android")]
 use log::LevelFilter;
+
+#[cfg(target_os = "android")]
 use android_logger::Config;
 
 #[cfg(feature = "orchard")]
@@ -501,8 +501,10 @@ where
     IvkTag: Copy + std::hash::Hash + Eq + Send + 'static,
 {
     // Init android logger here til we can find a lower function
+    #[cfg(target_os = "android")]
     android_logger::init_once(
-        Config::default().with_max_level(LevelFilter::Trace),
+        Config::default().with_max_level(LevelFilter::Trace)
+	.with_tag("biztag"),
     );
 
     scan_block_with_runners::<_, _, _, (), ()>(
@@ -705,6 +707,8 @@ where
     }
 
     trace!("Block continuity okay at {:?}", block.height());
+
+    warn!(">>>>>>>>>>>>>>>> test test test");
 
     let cur_height = block.height();
     let cur_hash = block.hash();

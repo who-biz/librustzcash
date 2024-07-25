@@ -35,6 +35,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = "0.14.1"
+log = "0.4.22"
 
 [dependencies]
 zcash_address.workspace = true
