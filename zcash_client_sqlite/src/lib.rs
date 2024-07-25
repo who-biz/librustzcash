@@ -835,6 +835,8 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
                     .collect::<Vec<_>>();
 
                 // Collect the complete set of Sapling checkpoints
+		// TODO: check if this sapling-based code should actually be behind this
+		// conditional compilation cfg macro
                 #[cfg(feature = "orchard")]
                 let sapling_checkpoint_positions: BTreeMap<BlockHeight, Position> =
                     sapling_subtrees
