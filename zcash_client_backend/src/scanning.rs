@@ -693,9 +693,10 @@ where
         return Err(scan_error);
     }
 
-    trace!("Block continuity okay at {:?}", block.height());
+    warn!("Block continuity okay at {:?}", block.height());
 
-    warn!(">>>>>>>>>>>>>>>> test test test");
+    warn!(">>> block output: ({:?})",block);
+    //warn!(">>>>>>>>>>>>>>>> test test test");
 
     let cur_height = block.height();
     let cur_hash = block.hash();
@@ -716,10 +717,12 @@ where
                                     if cur_height < sapling_activation {
                                         Ok(0)
                                     } else {
-                                        Err(ScanError::TreeSizeUnknown {
-                                            protocol: ShieldedProtocol::Sapling,
-                                            at_height: cur_height,
-                                        })
+					warn!(">>> block output: ({:?})",block);
+					Ok(0)
+                                       // Err(ScanError::TreeSizeUnknown {
+                                       //     protocol: ShieldedProtocol::Sapling,
+                                       //     at_height: cur_height,
+                                       // })
                                     }
                                 },
                             )
@@ -959,15 +962,15 @@ where
             });
         }
 
-//        #[cfg(feature = "orchard")]
-//        if chain_meta.orchard_commitment_tree_size != orchard_commitment_tree_size {
-//            return Err(ScanError::TreeSizeMismatch {
-//                protocol: ShieldedProtocol::Orchard,
-//                at_height: cur_height,
-//                given: chain_meta.orchard_commitment_tree_size,
-//                computed: orchard_commitment_tree_size,
-//            });
-//        }
+        #[cfg(feature = "orchard")]
+        if chain_meta.orchard_commitment_tree_size != orchard_commitment_tree_size {
+            return Err(ScanError::TreeSizeMismatch {
+                protocol: ShieldedProtocol::Orchard,
+                at_height: cur_height,
+                given: chain_meta.orchard_commitment_tree_size,
+                computed: orchard_commitment_tree_size,
+            });
+        }
     }
 
     Ok(ScannedBlock::from_parts(
