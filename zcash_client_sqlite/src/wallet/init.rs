@@ -3,6 +3,12 @@
 use std::fmt;
 use std::rc::Rc;
 
+#[cfg(target_os = "android")]
+use log::LevelFilter;
+
+#[cfg(target_os = "android")]
+use android_logger::Config;
+
 use schemer::{Migrator, MigratorError};
 use schemer_rusqlite::RusqliteAdapter;
 use secrecy::SecretVec;
@@ -258,6 +264,12 @@ pub fn init_wallet_db<P: consensus::Parameters + 'static>(
     wdb: &mut WalletDb<rusqlite::Connection, P>,
     seed: Option<SecretVec<u8>>,
 ) -> Result<(), MigratorError<WalletMigrationError>> {
+
+    #[cfg(target_os = "android")]
+    android_logger::init_once(
+        Config::default().with_max_level(LevelFilter::Trace),
+    );
+
     init_wallet_db_internal(wdb, seed, &[], true)
 }
 

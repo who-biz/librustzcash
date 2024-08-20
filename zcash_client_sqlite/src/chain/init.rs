@@ -1,12 +1,6 @@
 //! Functions for initializing the various databases.
 use crate::BlockDb;
 
-#[cfg(target_os = "android")]
-use log::LevelFilter;
-
-#[cfg(target_os = "android")]
-use android_logger::Config;
-
 #[cfg(feature = "unstable")]
 use {
     super::migrations,
@@ -31,12 +25,6 @@ use {
 /// init_cache_database(&db).unwrap();
 /// ```
 pub fn init_cache_database(db_cache: &BlockDb) -> Result<(), rusqlite::Error> {
-
-    #[cfg(target_os = "android")]
-    android_logger::init_once(
-        Config::default().with_max_level(LevelFilter::Trace),
-    );
-
     db_cache.0.execute(
         "CREATE TABLE IF NOT EXISTS compactblocks (
             height INTEGER PRIMARY KEY,

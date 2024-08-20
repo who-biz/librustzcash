@@ -61,12 +61,6 @@
 // Temporary until we have addressed all Result<T, ()> cases.
 #![allow(clippy::result_unit_err)]
 
-#[cfg(target_os = "android")]
-#[macro_use] extern crate log;
-
-#[cfg(target_os = "android")]
-extern crate android_logger;
-
 pub use zcash_keys::address;
 pub mod data_api;
 mod decrypt;

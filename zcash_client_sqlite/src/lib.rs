@@ -32,6 +32,12 @@
 // Catch documentation errors caused by code changes.
 #![deny(rustdoc::broken_intra_doc_links)]
 
+#[cfg(target_os = "android")]
+#[macro_use] extern crate log;
+
+#[cfg(target_os = "android")]
+extern crate android_logger;
+
 use incrementalmerkletree::{Position, Retention};
 use maybe_rayon::{
     prelude::{IndexedParallelIterator, ParallelIterator},
