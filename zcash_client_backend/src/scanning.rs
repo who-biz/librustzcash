@@ -12,7 +12,7 @@ use sapling::{
 };
 use subtle::{ConditionallySelectable, ConstantTimeEq, CtOption};
 
-use tracing::{debug, trace, warn};
+use tracing::{debug,/* trace,*/ warn};
 use zcash_keys::keys::UnifiedFullViewingKey;
 use zcash_note_encryption::{batch, BatchDomain, Domain, ShieldedOutput, COMPACT_NOTE_SIZE};
 use zcash_primitives::{
