@@ -277,10 +277,10 @@ impl UnifiedSpendingKey {
 
     /// Returns the transparent component of the unified key at the
     /// BIP44 path `m/44'/<coin_type>'/<account>'`.
-    #[cfg(feature = "transparent-inputs")]
-    pub fn transparentBip44(&self) -> &legacy::AccountPrivKey {
-        &self.transparentBip44
-    }
+    //#[cfg(feature = "transparent-inputs")]
+    //pub fn transparentBip44(&self) -> &legacy::AccountPrivKey {
+    //    &self.transparentBip44
+    //}
 
     /// Returns the Sapling extended spending key component of this unified spending key.
     #[cfg(feature = "sapling")]
