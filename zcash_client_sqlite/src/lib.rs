@@ -327,6 +327,7 @@ impl<C: Borrow<rusqlite::Connection>, P: consensus::Parameters> WalletRead for W
     fn validate_seed(
         &self,
         account_id: Self::AccountId,
+        transparentkey: &SecretVec<u8>,
         seed: &SecretVec<u8>,
     ) -> Result<bool, Self::Error> {
         if let Some(account) = self.get_account(account_id)? {
@@ -337,6 +338,7 @@ impl<C: Borrow<rusqlite::Connection>, P: consensus::Parameters> WalletRead for W
             {
                 wallet::seed_matches_derived_account(
                     &self.params,
+                    transparentkey,
                     seed,
                     &seed_fingerprint,
                     account_index,
@@ -353,6 +355,7 @@ impl<C: Borrow<rusqlite::Connection>, P: consensus::Parameters> WalletRead for W
 
     fn seed_relevance_to_derived_accounts(
         &self,
+        transparentkey: &SecretVec<u8>,
         seed: &SecretVec<u8>,
     ) -> Result<SeedRelevance<Self::AccountId>, Self::Error> {
         let mut has_accounts = false;
@@ -376,6 +379,7 @@ impl<C: Borrow<rusqlite::Connection>, P: consensus::Parameters> WalletRead for W
 
                 if wallet::seed_matches_derived_account(
                     &self.params,
+                    transparentkey,
                     seed,
                     &seed_fingerprint,
                     account_index,
@@ -542,6 +546,7 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
 
     fn create_account(
         &mut self,
+        transparentkey: &SecretVec<u8>,
         seed: &SecretVec<u8>,
         birthday: &AccountBirthday,
     ) -> Result<(AccountId, UnifiedSpendingKey), Self::Error> {
@@ -558,7 +563,7 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
                 .unwrap_or(zip32::AccountId::ZERO);
 
             let usk =
-                UnifiedSpendingKey::from_seed(&wdb.params, seed.expose_secret(), account_index)
+                UnifiedSpendingKey::from_seed(&wdb.params, transparentkey.expose_secret(), seed.expose_secret(), account_index)
                     .map_err(|_| SqliteClientError::KeyDerivationError(account_index))?;
             let ufvk = usk.to_unified_full_viewing_key();
 

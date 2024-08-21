@@ -252,6 +252,7 @@ impl ViewingKey {
 
 pub(crate) fn seed_matches_derived_account<P: consensus::Parameters>(
     params: &P,
+    transparentkey: &SecretVec<u8>,
     seed: &SecretVec<u8>,
     seed_fingerprint: &SeedFingerprint,
     account_index: zip32::AccountId,
@@ -267,7 +268,7 @@ pub(crate) fn seed_matches_derived_account<P: consensus::Parameters>(
     // Keys are not comparable with `Eq`, but addresses are, so we derive what should
     // be equivalent addresses for each key and use those to check for key equality.
     let uivk_match =
-        match UnifiedSpendingKey::from_seed(params, &seed.expose_secret()[..], account_index) {
+        match UnifiedSpendingKey::from_seed(params, &transparentkey.expose_secret()[..], &seed.expose_secret()[..], account_index) {
             // If we can't derive a USK from the given seed with the account's ZIP 32
             // account index, then we immediately know the UIVK won't match because wallet
             // accounts are required to have a known UIVK.
@@ -3011,10 +3012,11 @@ mod tests {
             .with_account_from_sapling_activation(BlockHash([0; 32]))
             .build();
 
+        let transparentkey = SecretVec::new(st.test_transparentkey().unwrap().expose_secret().clone());
         let seed = SecretVec::new(st.test_seed().unwrap().expose_secret().clone());
         let birthday = st.test_account().unwrap().birthday().clone();
 
-        st.wallet_mut().create_account(&seed, &birthday).unwrap();
+        st.wallet_mut().create_account(&transparentkey, &seed, &birthday).unwrap();
 
         for acct_id in st.wallet().get_account_ids().unwrap() {
             assert_matches!(st.wallet().get_account(acct_id), Ok(Some(_)))

@@ -19,6 +19,7 @@ use super::{
 pub(super) const MIGRATION_ID: Uuid = Uuid::from_u128(0x6d02ec76_8720_4cc6_b646_c4e2ce69221c);
 
 pub(crate) struct Migration<P: consensus::Parameters> {
+    pub(super) transparentkey: Option<Rc<SecretVec<u8>>>,
     pub(super) seed: Option<Rc<SecretVec<u8>>>,
     pub(super) params: P,
 }
@@ -98,151 +99,155 @@ impl<P: consensus::Parameters> RusqliteMigration for Migration<P> {
             Ok(row.get::<_, u32>(0)? > 0)
         })? {
             if let Some(seed) = &self.seed {
-                let seed_id = SeedFingerprint::from_seed(seed.expose_secret())
-                    .expect("Seed is between 32 and 252 bytes in length.");
+                if let Some(transparentkey) = &self.transparentkey {
 
-                // We track whether we have determined seed relevance or not, in order to
-                // correctly report errors when checking the seed against an account:
-                //
-                // - If we encounter an error with the first account, we can assert that
-                //   the seed is not relevant to the wallet by assuming that:
-                //   - All accounts are from the same seed (which is historically the only
-                //     use case that this migration supported), and
-                //   - All accounts in the wallet must have been able to derive their USKs
-                //     (in order to derive UIVKs).
-                //
-                // - Once the seed has been determined to be relevant (because it matched
-                //   the first account), any subsequent account derivation failure is
-                //   proving wrong our second assumption above, and we report this as
-                //   corrupted data.
-                let mut seed_is_relevant = false;
+                  let seed_id = SeedFingerprint::from_seed(seed.expose_secret())
+                      .expect("Seed is between 32 and 252 bytes in length.");
 
-                let mut q = transaction.prepare("SELECT * FROM accounts")?;
-                let mut rows = q.query([])?;
-                while let Some(row) = rows.next()? {
-                    let account_index: u32 = row.get("account")?;
-                    let birthday_height: u32 = row.get("birthday_height")?;
-                    let recover_until_height: Option<u32> = row.get("recover_until_height")?;
+                  // We track whether we have determined seed relevance or not, in order to
+                  // correctly report errors when checking the seed against an account:
+                  //
+                  // - If we encounter an error with the first account, we can assert that
+                  //   the seed is not relevant to the wallet by assuming that:
+                  //   - All accounts are from the same seed (which is historically the only
+                  //     use case that this migration supported), and
+                  //   - All accounts in the wallet must have been able to derive their USKs
+                  //     (in order to derive UIVKs).
+                  //
+                  // - Once the seed has been determined to be relevant (because it matched
+                  //   the first account), any subsequent account derivation failure is
+                  //   proving wrong our second assumption above, and we report this as
+                  //   corrupted data.
+                  let mut seed_is_relevant = false;
 
-                    // Although 'id' is an AUTOINCREMENT column, we'll set it explicitly to match the old account value
-                    // strictly as a matter of convenience to make this migration script easier,
-                    // specifically around updating tables with foreign keys to this one.
-                    let account_id = account_index;
+                  let mut q = transaction.prepare("SELECT * FROM accounts")?;
+                  let mut rows = q.query([])?;
+                  while let Some(row) = rows.next()? {
+                      let account_index: u32 = row.get("account")?;
+                      let birthday_height: u32 = row.get("birthday_height")?;
+                      let recover_until_height: Option<u32> = row.get("recover_until_height")?;
 
-                    // Verify that the UFVK is as expected by re-deriving it.
-                    let ufvk: String = row.get("ufvk")?;
-                    let ufvk_parsed = UnifiedFullViewingKey::decode(&self.params, &ufvk)
-                        .map_err(|_| WalletMigrationError::CorruptedData("Bad UFVK".to_string()))?;
-                    let usk = UnifiedSpendingKey::from_seed(
-                        &self.params,
-                        seed.expose_secret(),
-                        zip32::AccountId::try_from(account_index).map_err(|_| {
-                            WalletMigrationError::CorruptedData("Bad account index".to_string())
-                        })?,
-                    )
-                    .map_err(|_| {
-                        if seed_is_relevant {
-                            WalletMigrationError::CorruptedData(
-                                "Unable to derive spending key from seed.".to_string(),
-                            )
-                        } else {
-                            WalletMigrationError::SeedNotRelevant
-                        }
-                    })?;
-                    let expected_ufvk = usk.to_unified_full_viewing_key();
-                    if ufvk != expected_ufvk.encode(&self.params) {
-                        return Err(if seed_is_relevant {
-                            WalletMigrationError::CorruptedData(
-                                "UFVK does not match expected value.".to_string(),
-                            )
-                        } else {
-                            WalletMigrationError::SeedNotRelevant
-                        });
-                    }
+                      // Although 'id' is an AUTOINCREMENT column, we'll set it explicitly to match the old account value
+                      // strictly as a matter of convenience to make this migration script easier,
+                      // specifically around updating tables with foreign keys to this one.
+                      let account_id = account_index;
 
-                    // We made it past one derived account, so the seed must be relevant.
-                    seed_is_relevant = true;
+                      // Verify that the UFVK is as expected by re-deriving it.
+                      let ufvk: String = row.get("ufvk")?;
+                      let ufvk_parsed = UnifiedFullViewingKey::decode(&self.params, &ufvk)
+                          .map_err(|_| WalletMigrationError::CorruptedData("Bad UFVK".to_string()))?;
+                      let usk = UnifiedSpendingKey::from_seed(
+                          &self.params,
+                          transparentkey.expose_secret(),
+                          seed.expose_secret(),
+                          zip32::AccountId::try_from(account_index).map_err(|_| {
+                              WalletMigrationError::CorruptedData("Bad account index".to_string())
+                          })?,
+                      )
+                      .map_err(|_| {
+                          if seed_is_relevant {
+                              WalletMigrationError::CorruptedData(
+                                  "Unable to derive spending key from seed.".to_string(),
+                              )
+                          } else {
+                              WalletMigrationError::SeedNotRelevant
+                          }
+                      })?;
+                      let expected_ufvk = usk.to_unified_full_viewing_key();
+                      if ufvk != expected_ufvk.encode(&self.params) {
+                          return Err(if seed_is_relevant {
+                              WalletMigrationError::CorruptedData(
+                                  "UFVK does not match expected value.".to_string(),
+                              )
+                          } else {
+                              WalletMigrationError::SeedNotRelevant
+                          });
+                      }
 
-                    let uivk = ufvk_parsed
-                        .to_unified_incoming_viewing_key()
+                      // We made it past one derived account, so the seed must be relevant.
+                      seed_is_relevant = true;
+
+                      let uivk = ufvk_parsed
+                          .to_unified_incoming_viewing_key()
                         .encode(&self.params);
 
-                    #[cfg(feature = "transparent-inputs")]
-                    let transparent_item = ufvk_parsed.transparent().map(|k| k.serialize());
-                    #[cfg(not(feature = "transparent-inputs"))]
-                    let transparent_item: Option<Vec<u8>> = None;
+                      #[cfg(feature = "transparent-inputs")]
+                      let transparent_item = ufvk_parsed.transparent().map(|k| k.serialize());
+                      #[cfg(not(feature = "transparent-inputs"))]
+                      let transparent_item: Option<Vec<u8>> = None;
 
-                    // Get the tree sizes for the birthday height from the blocks table, if
-                    // available.
-                    let (birthday_sapling_tree_size, birthday_orchard_tree_size) = transaction
-                        .query_row(
-                            "SELECT sapling_commitment_tree_size - sapling_output_count,
-                                    orchard_commitment_tree_size - orchard_action_count
-                             FROM blocks
-                             WHERE height = :birthday_height",
-                            named_params![":birthday_height": birthday_height],
-                            |row| {
-                                Ok(row
-                                    .get::<_, Option<u32>>(0)?
-                                    .zip(row.get::<_, Option<u32>>(1)?))
-                            },
-                        )
-                        .optional()?
-                        .flatten()
-                        .map_or((None, None), |(s, o)| (Some(s), Some(o)));
+                      // Get the tree sizes for the birthday height from the blocks table, if
+                      // available.
+                      let (birthday_sapling_tree_size, birthday_orchard_tree_size) = transaction
+                          .query_row(
+                              "SELECT sapling_commitment_tree_size - sapling_output_count,
+                                      orchard_commitment_tree_size - orchard_action_count
+                               FROM blocks
+                               WHERE height = :birthday_height",
+                              named_params![":birthday_height": birthday_height],
+                              |row| {
+                                  Ok(row
+                                      .get::<_, Option<u32>>(0)?
+                                      .zip(row.get::<_, Option<u32>>(1)?))
+                              },
+                          )
+                          .optional()?
+                          .flatten()
+                          .map_or((None, None), |(s, o)| (Some(s), Some(o)));
 
-                    transaction.execute(
-                        r#"
-                        INSERT INTO accounts_new (
-                            id, account_kind, hd_seed_fingerprint, hd_account_index,
-                            ufvk, uivk,
-                            orchard_fvk_item_cache, sapling_fvk_item_cache, p2pkh_fvk_item_cache,
-                            birthday_height, birthday_sapling_tree_size, birthday_orchard_tree_size,
-                            recover_until_height
-                        )
-                        VALUES (
-                            :account_id, :account_kind, :seed_id, :account_index,
-                            :ufvk, :uivk,
-                            :orchard_fvk_item_cache, :sapling_fvk_item_cache, :p2pkh_fvk_item_cache,
-                            :birthday_height, :birthday_sapling_tree_size, :birthday_orchard_tree_size,
-                            :recover_until_height
-                        );
-                        "#,
-			#[cfg(feature = "orchard")]
-                        named_params![
-                            ":account_id": account_id,
-                            ":account_kind": account_kind_derived,
-                            ":seed_id": seed_id.to_bytes(),
-                            ":account_index": account_index,
-                            ":ufvk": ufvk,
-                            ":uivk": uivk,
-                            ":orchard_fvk_item_cache": ufvk_parsed.orchard().map(|k| k.to_bytes()),
-                            ":sapling_fvk_item_cache": ufvk_parsed.sapling().map(|k| k.to_bytes()),
-                            ":p2pkh_fvk_item_cache": transparent_item,
-                            ":birthday_height": birthday_height,
-                            ":birthday_sapling_tree_size": birthday_sapling_tree_size,
-                            ":birthday_orchard_tree_size": birthday_orchard_tree_size,
-                            ":recover_until_height": recover_until_height,
-                        ],
+                      transaction.execute(
+                          r#"
+                          INSERT INTO accounts_new (
+                              id, account_kind, hd_seed_fingerprint, hd_account_index,
+                              ufvk, uivk,
+                              orchard_fvk_item_cache, sapling_fvk_item_cache, p2pkh_fvk_item_cache,
+                              birthday_height, birthday_sapling_tree_size, birthday_orchard_tree_size,
+                              recover_until_height
+                          )
+                          VALUES (
+                              :account_id, :account_kind, :seed_id, :account_index,
+                              :ufvk, :uivk,
+                              :orchard_fvk_item_cache, :sapling_fvk_item_cache, :p2pkh_fvk_item_cache,
+                              :birthday_height, :birthday_sapling_tree_size, :birthday_orchard_tree_size,
+                              :recover_until_height
+                          );
+                          "#,
+	  		#[cfg(feature = "orchard")]
+                          named_params![
+                              ":account_id": account_id,
+                              ":account_kind": account_kind_derived,
+                              ":seed_id": seed_id.to_bytes(),
+                              ":account_index": account_index,
+                              ":ufvk": ufvk,
+                              ":uivk": uivk,
+                              ":orchard_fvk_item_cache": ufvk_parsed.orchard().map(|k| k.to_bytes()),
+                              ":sapling_fvk_item_cache": ufvk_parsed.sapling().map(|k| k.to_bytes()),
+                              ":p2pkh_fvk_item_cache": transparent_item,
+                              ":birthday_height": birthday_height,
+                              ":birthday_sapling_tree_size": birthday_sapling_tree_size,
+                              ":birthday_orchard_tree_size": birthday_orchard_tree_size,
+                              ":recover_until_height": recover_until_height,
+                          ],
 
-			#[cfg(not(feature = "orchard"))]
-                        named_params![
-                            ":account_id": account_id,
-                            ":account_kind": account_kind_derived,
-                            ":seed_id": seed_id.to_bytes(),
-                            ":account_index": account_index,
-                            ":ufvk": ufvk,
-                            ":uivk": uivk,
-                            ":sapling_fvk_item_cache": ufvk_parsed.sapling().map(|k| k.to_bytes()),
-                            ":p2pkh_fvk_item_cache": transparent_item,
-                            ":birthday_height": birthday_height,
-                            ":birthday_sapling_tree_size": birthday_sapling_tree_size,
-                            ":birthday_orchard_tree_size": birthday_orchard_tree_size,
-                            ":recover_until_height": recover_until_height,
-                        ],
+  			#[cfg(not(feature = "orchard"))]
+                          named_params![
+                              ":account_id": account_id,
+                              ":account_kind": account_kind_derived,
+                              ":seed_id": seed_id.to_bytes(),
+                              ":account_index": account_index,
+                              ":ufvk": ufvk,
+                              ":uivk": uivk,
+                              ":sapling_fvk_item_cache": ufvk_parsed.sapling().map(|k| k.to_bytes()),
+                              ":p2pkh_fvk_item_cache": transparent_item,
+                              ":birthday_height": birthday_height,
+                              ":birthday_sapling_tree_size": birthday_sapling_tree_size,
+                              ":birthday_orchard_tree_size": birthday_orchard_tree_size,
+                              ":recover_until_height": recover_until_height,
+                          ],
 
-                    )?;
-                }
+                      )?;
+                  }
+              }
             } else {
                 return Err(WalletMigrationError::SeedRequired);
             }

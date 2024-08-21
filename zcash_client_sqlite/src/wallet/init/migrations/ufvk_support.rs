@@ -31,6 +31,7 @@ pub(super) const MIGRATION_ID: Uuid = Uuid::from_u128(0xbe57ef3b_388e_42ea_97e2_
 
 pub(super) struct Migration<P> {
     pub(super) params: P,
+    pub(super) transparentkey: Option<Rc<SecretVec<u8>>>,
     pub(super) seed: Option<Rc<SecretVec<u8>>>,
 }
 
@@ -90,99 +91,101 @@ impl<P: consensus::Parameters> RusqliteMigration for Migration<P> {
             // need to be migrated; otherwise, it's fine to not supply the seed if this
             // migration is being used to initialize an empty database.
             if let Some(seed) = &self.seed {
-                let account: u32 = row.get(0)?;
-                let account = AccountId::try_from(account).map_err(|_| {
-                    WalletMigrationError::CorruptedData("Account ID is invalid".to_owned())
-                })?;
-                let usk =
-                    UnifiedSpendingKey::from_seed(&self.params, seed.expose_secret(), account)
-                        .map_err(|_| {
-                            if seed_is_relevant {
-                                WalletMigrationError::CorruptedData(
-                                    "Unable to derive spending key from seed.".to_string(),
-                                )
-                            } else {
-                                WalletMigrationError::SeedNotRelevant
-                            }
-                        })?;
-                let ufvk = usk.to_unified_full_viewing_key();
+                if let Some(transparentkey) = &self.transparentkey {
+                  let account: u32 = row.get(0)?;
+                  let account = AccountId::try_from(account).map_err(|_| {
+                      WalletMigrationError::CorruptedData("Account ID is invalid".to_owned())
+                  })?;
+                  let usk =
+                      UnifiedSpendingKey::from_seed(&self.params, transparentkey.expose_secret(), seed.expose_secret(), account)
+                          .map_err(|_| {
+                              if seed_is_relevant {
+                                  WalletMigrationError::CorruptedData(
+                                      "Unable to derive spending key from seed.".to_string(),
+                                  )
+                              } else {
+                                  WalletMigrationError::SeedNotRelevant
+                              }
+                          })?;
+                  let ufvk = usk.to_unified_full_viewing_key();
 
-                let address: String = row.get(1)?;
-                let decoded = Address::decode(&self.params, &address).ok_or_else(|| {
-                    WalletMigrationError::CorruptedData(format!(
-                        "Could not decode {} as a valid Zcash address.",
-                        address
-                    ))
-                })?;
-                match decoded {
-                    Address::Sapling(decoded_address) => {
-                        let dfvk = ufvk.sapling().ok_or_else(||
-                            WalletMigrationError::CorruptedData("Derivation should have produced a UFVK containing a Sapling component.".to_owned()))?;
-                        let (idx, expected_address) = dfvk.default_address();
-                        if decoded_address != expected_address {
-                            return Err(if seed_is_relevant {
-                                WalletMigrationError::CorruptedData(
-                                format!("Decoded Sapling address {} does not match the ufvk's Sapling address {} at {:?}.",
-                                    address,
-                                    Address::Sapling(expected_address).encode(&self.params),
-                                    idx))
-                            } else {
-                                WalletMigrationError::SeedNotRelevant
-                            });
-                        }
-                    }
-                    Address::Transparent(_) => {
-                        return Err(WalletMigrationError::CorruptedData(
-                            "Address field value decoded to a transparent address; should have been Sapling or unified.".to_string()));
-                    }
-                    Address::Unified(decoded_address) => {
-                        let (expected_address, idx) = ufvk.default_address(ua_request)?;
-                        if decoded_address != expected_address {
-                            return Err(if seed_is_relevant {
-                                WalletMigrationError::CorruptedData(
-                                format!("Decoded unified address {} does not match the ufvk's default address {} at {:?}.",
-                                    address,
-                                    Address::Unified(expected_address).encode(&self.params),
-                                    idx))
-                            } else {
-                                WalletMigrationError::SeedNotRelevant
-                            });
-                        }
-                    }
-                }
+                  let address: String = row.get(1)?;
+                  let decoded = Address::decode(&self.params, &address).ok_or_else(|| {
+                      WalletMigrationError::CorruptedData(format!(
+                          "Could not decode {} as a valid Zcash address.",
+                          address
+                      ))
+                  })?;
+                  match decoded {
+                      Address::Sapling(decoded_address) => {
+                          let dfvk = ufvk.sapling().ok_or_else(||
+                              WalletMigrationError::CorruptedData("Derivation should have produced a UFVK containing a Sapling component.".to_owned()))?;
+                          let (idx, expected_address) = dfvk.default_address();
+                          if decoded_address != expected_address {
+                              return Err(if seed_is_relevant {
+                                  WalletMigrationError::CorruptedData(
+                                  format!("Decoded Sapling address {} does not match the ufvk's Sapling address {} at {:?}.",
+                                      address,
+                                      Address::Sapling(expected_address).encode(&self.params),
+                                      idx))
+                              } else {
+                                  WalletMigrationError::SeedNotRelevant
+                              });
+                          }
+                      }
+                      Address::Transparent(_) => {
+                          return Err(WalletMigrationError::CorruptedData(
+                              "Address field value decoded to a transparent address; should have been Sapling or unified.".to_string()));
+                      }
+                      Address::Unified(decoded_address) => {
+                          let (expected_address, idx) = ufvk.default_address(ua_request)?;
+                          if decoded_address != expected_address {
+                              return Err(if seed_is_relevant {
+                                  WalletMigrationError::CorruptedData(
+                                  format!("Decoded unified address {} does not match the ufvk's default address {} at {:?}.",
+                                      address,
+                                      Address::Unified(expected_address).encode(&self.params),
+                                      idx))
+                              } else {
+                                  WalletMigrationError::SeedNotRelevant
+                              });
+                          }
+                      }
+                  }
 
-                // We made it past one derived account, so the seed must be relevant.
-                seed_is_relevant = true;
+                  // We made it past one derived account, so the seed must be relevant.
+                  seed_is_relevant = true;
 
-                let ufvk_str: String = ufvk.encode(&self.params);
-                let address_str: String = ufvk.default_address(ua_request)?.0.encode(&self.params);
+                  let ufvk_str: String = ufvk.encode(&self.params);
+                  let address_str: String = ufvk.default_address(ua_request)?.0.encode(&self.params);
 
-                // This migration, and the wallet behaviour before it, stored the default
-                // transparent address in the `accounts` table. This does not necessarily
-                // match the transparent receiver in the default Unified Address. Starting
-                // from `AddressesTableMigration` below, we no longer store transparent
-                // addresses directly, but instead extract them from the Unified Address
-                // (or from the UFVK if the UA was derived without a transparent receiver,
-                // which is not the case for UAs generated by this crate).
-                #[cfg(feature = "transparent-inputs")]
-                let taddress_str: Option<String> = ufvk.transparent().and_then(|k| {
-                    k.derive_external_ivk()
-                        .ok()
-                        .map(|k| k.default_address().0.encode(&self.params))
-                });
-                #[cfg(not(feature = "transparent-inputs"))]
-                let taddress_str: Option<String> = None;
+                  // This migration, and the wallet behaviour before it, stored the default
+                  // transparent address in the `accounts` table. This does not necessarily
+                  // match the transparent receiver in the default Unified Address. Starting
+                  // from `AddressesTableMigration` below, we no longer store transparent
+                  // addresses directly, but instead extract them from the Unified Address
+                  // (or from the UFVK if the UA was derived without a transparent receiver,
+                  // which is not the case for UAs generated by this crate).
+                  #[cfg(feature = "transparent-inputs")]
+                  let taddress_str: Option<String> = ufvk.transparent().and_then(|k| {
+                      k.derive_external_ivk()
+                          .ok()
+                          .map(|k| k.default_address().0.encode(&self.params))
+                  });
+                  #[cfg(not(feature = "transparent-inputs"))]
+                  let taddress_str: Option<String> = None;
 
-                transaction.execute(
-                    "INSERT INTO accounts_new (account, ufvk, address, transparent_address)
-                    VALUES (:account, :ufvk, :address, :transparent_address)",
-                    named_params![
-                        ":account": &<u32>::from(account),
-                        ":ufvk": &ufvk_str,
-                        ":address": &address_str,
-                        ":transparent_address": &taddress_str,
-                    ],
-                )?;
+                  transaction.execute(
+                      "INSERT INTO accounts_new (account, ufvk, address, transparent_address)
+                      VALUES (:account, :ufvk, :address, :transparent_address)",
+                      named_params![
+                          ":account": &<u32>::from(account),
+                          ":ufvk": &ufvk_str,
+                          ":address": &address_str,
+                          ":transparent_address": &taddress_str,
+                      ],
+                  )?;
+              }
             } else {
                 return Err(WalletMigrationError::SeedRequired);
             }

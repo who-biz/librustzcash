@@ -262,6 +262,7 @@ fn sqlite_client_error_to_wallet_migration_error(e: SqliteClientError) -> Wallet
 // library *not* compiled with the `transparent-inputs` feature flag, and fail if any are present.
 pub fn init_wallet_db<P: consensus::Parameters + 'static>(
     wdb: &mut WalletDb<rusqlite::Connection, P>,
+    transparentkey: Option<SecretVec<u8>>,
     seed: Option<SecretVec<u8>>,
 ) -> Result<(), MigratorError<WalletMigrationError>> {
 
@@ -270,15 +271,17 @@ pub fn init_wallet_db<P: consensus::Parameters + 'static>(
         Config::default().with_max_level(LevelFilter::Trace),
     );
 
-    init_wallet_db_internal(wdb, seed, &[], true)
+    init_wallet_db_internal(wdb, transparentkey, seed, &[], true)
 }
 
 fn init_wallet_db_internal<P: consensus::Parameters + 'static>(
     wdb: &mut WalletDb<rusqlite::Connection, P>,
+    transparentkey: Option<SecretVec<u8>>,
     seed: Option<SecretVec<u8>>,
     target_migrations: &[Uuid],
     verify_seed_relevance: bool,
 ) -> Result<(), MigratorError<WalletMigrationError>> {
+    let transparentkey = transparentkey.map(Rc::new);
     let seed = seed.map(Rc::new);
 
     // Turn off foreign keys, and ensure that table replacement/modification
@@ -294,7 +297,7 @@ fn init_wallet_db_internal<P: consensus::Parameters + 'static>(
 
     let mut migrator = Migrator::new(adapter);
     migrator
-        .register_multiple(migrations::all_migrations(&wdb.params, seed.clone()))
+        .register_multiple(migrations::all_migrations(&wdb.params, transparentkey.clone(), seed.clone()))
         .expect("Wallet migration registration should have been successful.");
     if target_migrations.is_empty() {
         migrator.up(None)?;
@@ -314,19 +317,21 @@ fn init_wallet_db_internal<P: consensus::Parameters + 'static>(
     // based upon which migrations they're asking to apply.
     if verify_seed_relevance {
         if let Some(seed) = seed {
-            match wdb
-                .seed_relevance_to_derived_accounts(&seed)
-                .map_err(sqlite_client_error_to_wallet_migration_error)?
-            {
-                SeedRelevance::Relevant { .. } => (),
-                // Every seed is relevant to a wallet with no accounts; this is most likely a
-                // new wallet database being initialized for the first time.
-                SeedRelevance::NoAccounts => (),
-                // No seed is relevant to a wallet that only has imported accounts.
-                SeedRelevance::NotRelevant | SeedRelevance::NoDerivedAccounts => {
-                    return Err(WalletMigrationError::SeedNotRelevant.into())
-                }
-            }
+            if let Some(transparentkey) = transparentkey {
+              match wdb
+                  .seed_relevance_to_derived_accounts(&transparentkey, &seed)
+                  .map_err(sqlite_client_error_to_wallet_migration_error)?
+              {
+                  SeedRelevance::Relevant { .. } => (),
+                  // Every seed is relevant to a wallet with no accounts; this is most likely a
+                  // new wallet database being initialized for the first time.
+                  SeedRelevance::NoAccounts => (),
+                  // No seed is relevant to a wallet that only has imported accounts.
+                  SeedRelevance::NotRelevant | SeedRelevance::NoDerivedAccounts => {
+                      return Err(WalletMigrationError::SeedNotRelevant.into())
+                  }
+              }
+           }
         }
     }
 
@@ -1143,13 +1148,14 @@ mod tests {
         let mut db_data = WalletDb::for_path(data_file.path(), Network::TestNetwork).unwrap();
 
         let seed = [0xab; 32];
+        let transparentkey = [0xab; 32];
         let account = AccountId::ZERO;
         let secret_key = sapling::spending_key(&seed, db_data.params.coin_type(), account);
         let extfvk = secret_key.to_extended_full_viewing_key();
 
         init_0_3_0(&mut db_data, &extfvk, account).unwrap();
         assert_matches!(
-            init_wallet_db(&mut db_data, Some(Secret::new(seed.to_vec()))),
+            init_wallet_db(&mut db_data, Some(Secret::new(transparentkey.tovec())), Some(Secret::new(seed.to_vec()))),
             Ok(_)
         );
     }
@@ -1313,6 +1319,7 @@ mod tests {
         let data_file = NamedTempFile::new().unwrap();
         let mut db_data = WalletDb::for_path(data_file.path(), Network::TestNetwork).unwrap();
 
+        let transparentkey = [0xab; 32];
         let seed = [0xab; 32];
         let account = AccountId::ZERO;
         let secret_key = sapling::spending_key(&seed, db_data.params.coin_type(), account);
@@ -1320,7 +1327,7 @@ mod tests {
 
         init_autoshielding(&mut db_data, &extfvk, account).unwrap();
         assert_matches!(
-            init_wallet_db(&mut db_data, Some(Secret::new(seed.to_vec()))),
+            init_wallet_db(&mut db_data, Some(Secret::new(transparentkey.to_vect())), Some(Secret::new(seed.to_vec()))),
             Ok(_)
         );
     }
@@ -1480,9 +1487,10 @@ mod tests {
         let data_file = NamedTempFile::new().unwrap();
         let mut db_data = WalletDb::for_path(data_file.path(), Network::TestNetwork).unwrap();
 
+        let transparentkey = [0xab; 32];
         let seed = [0xab; 32];
         let account = AccountId::ZERO;
-        let secret_key = UnifiedSpendingKey::from_seed(&db_data.params, &seed, account).unwrap();
+        let secret_key = UnifiedSpendingKey::from_seed(&db_data.params, &transparentkey, &seed, account).unwrap();
 
         init_main(
             &mut db_data,
@@ -1491,7 +1499,7 @@ mod tests {
         )
         .unwrap();
         assert_matches!(
-            init_wallet_db(&mut db_data, Some(Secret::new(seed.to_vec()))),
+            init_wallet_db(&mut db_data, Some(Secret::new(transparentkey.to_vec())),  Some(Secret::new(seed.to_vec()))),
             Ok(_)
         );
     }
