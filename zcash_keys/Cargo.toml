@@ -37,6 +37,7 @@ bs58.workspace = true
 
 # - Transparent protocols
 hdwallet = { workspace = true, optional = true }
+secp256k1 = { workspace = true, optional = true }
 
 # - Logging and metrics
 memuse.workspace = true
@@ -76,7 +77,7 @@ zcash_primitives = { workspace = true, features = ["test-dependencies"] }
 
 [features]
 ## Enables use of transparent key parts and addresses
-transparent-inputs = ["dep:hdwallet", "zcash_primitives/transparent-inputs"]
+transparent-inputs = ["dep:hdwallet", "zcash_primitives/transparent-inputs", "dep:secp256k1"]
 
 ## Enables use of Orchard key parts and addresses
 orchard = ["dep:orchard"]
