@@ -267,7 +267,8 @@ impl UnifiedSpendingKey {
         let secp = Secp256k1::new();
         UnifiedFullViewingKey {
             #[cfg(feature = "transparent-inputs")]
-            transparent: Some(secp256k1::PublicKey::from_secret_key(&secp, &self.transparent)),
+            transparent: Some(legacy::AccountPubKey::deserialize_and_pad(
+                &secp256k1::PublicKey::from_secret_key(&secp, &self.transparent).serialize()).unwrap()),
             #[cfg(feature = "sapling")]
             sapling: Some(self.sapling.to_diversifiable_full_viewing_key()),
             #[cfg(feature = "orchard")]
@@ -638,7 +639,9 @@ impl From<secp256k1::Error> for DerivationError {
 #[derive(Clone, Debug)]
 pub struct UnifiedFullViewingKey {
     #[cfg(feature = "transparent-inputs")]
-    transparent: Option<secp256k1::PublicKey>,
+    transparent: Option<legacy::AccountPubKey>,
+//    #[cfg(feature = "transparent-inputs")]
+//    transparent: Option<secp256k1::PublicKey>,
     #[cfg(feature = "sapling")]
     sapling: Option<sapling::DiversifiableFullViewingKey>,
     #[cfg(feature = "orchard")]
@@ -654,6 +657,7 @@ impl UnifiedFullViewingKey {
     /// be used instead.
     #[cfg(any(test, feature = "test-dependencies"))]
     pub fn new(
+//        #[cfg(feature = "transparent-inputs")] transparent: Option<secp256k1::PublicKey>,
         #[cfg(feature = "transparent-inputs")] transparent: Option<legacy::AccountPubKey>,
         #[cfg(feature = "sapling")] sapling: Option<sapling::DiversifiableFullViewingKey>,
         #[cfg(feature = "orchard")] orchard: Option<orchard::keys::FullViewingKey>,
@@ -675,7 +679,8 @@ impl UnifiedFullViewingKey {
     /// Construct a UFVK from its constituent parts, after verifying that UIVK derivation can
     /// succeed.
     fn from_checked_parts(
-        #[cfg(feature = "transparent-inputs")] transparent: Option<secp256k1::PublicKey>,
+//        #[cfg(feature = "transparent-inputs")] transparent: Option<secp256k1::PublicKey>,
+        #[cfg(feature = "transparent-inputs")] transparent: Option<legacy::AccountPubKey>,
         #[cfg(feature = "sapling")] sapling: Option<sapling::DiversifiableFullViewingKey>,
         #[cfg(feature = "orchard")] orchard: Option<orchard::keys::FullViewingKey>,
         unknown: Vec<(u32, Vec<u8>)>,
@@ -761,14 +766,18 @@ impl UnifiedFullViewingKey {
                     u32::from(unified::Typecode::Sapling),
                     data.to_vec(),
                 ))),
+//                #[cfg(feature = "transparent-inputs")]
+//                unified::Fvk::P2pkh(data) => secp256k1::PublicKey::from_slice(data)
                 #[cfg(feature = "transparent-inputs")]
-                unified::Fvk::P2pkh(data) => secp256k1::PublicKey::from_slice(data)
+                unified::Fvk::P2pkh(data) => legacy::AccountPubKey::deserialize_and_pad(data)
                     .map_err(|_| DecodingError::KeyDataInvalid(Typecode::P2pkh))
                     .map(|tfvk| {
                         transparent = Some(tfvk);
                         None
                     })
                     .transpose(),
+//                unified::Fvk::P2pkh(data) => legacy::AccountPubKey::derive_ext_ivk_from_compressed_key(secp256k1::PublicKey::from_slice(data)
+//                    .ok_or(DecodingError::KeyDataInvalid(Typecode::P2pkh))),
                 #[cfg(not(feature = "transparent-inputs"))]
                 unified::Fvk::P2pkh(data) => Some(Ok::<_, DecodingError>((
                     u32::from(unified::Typecode::P2pkh),
@@ -831,10 +840,17 @@ impl UnifiedFullViewingKey {
 
     /// Derives a Unified Incoming Viewing Key from this Unified Full Viewing Key.
     pub fn to_unified_incoming_viewing_key(&self) -> UnifiedIncomingViewingKey {
-        let secp = Secp256k1::new();
         UnifiedIncomingViewingKey {
+//            #[cfg(feature = "transparent-inputs")]
+//            transparent: self.transparent.as_ref().map(|t| {
+//                t.derive_ext_ivk_from_compressed_pubkey()
+//                    .expect("Transparent IVK derivation was checked at construction.")
+//            }),
             #[cfg(feature = "transparent-inputs")]
-            transparent: secp256k1::),
+            transparent: self.transparent.as_ref().map(|t| {
+                t.derive_external_ivk()
+                    .expect("Transparent IVK derivation was checked at construction.")
+            }),
             #[cfg(feature = "sapling")]
             sapling: self.sapling.as_ref().map(|s| s.to_external_ivk()),
             #[cfg(feature = "orchard")]
@@ -845,8 +861,10 @@ impl UnifiedFullViewingKey {
 
     /// Returns the transparent component of the unified key at the
     /// BIP44 path `m/44'/<coin_type>'/<account>'`.
+//    #[cfg(feature = "transparent-inputs")]
+//    pub fn transparent(&self) -> Option<&legacy::AccountPubKey> {
     #[cfg(feature = "transparent-inputs")]
-    pub fn transparent(&self) -> Option<&secp256k1::SecretKey> {
+    pub fn transparent(&self) -> Option<&legacy::AccountPubKey> {
         self.transparent.as_ref()
     }
 
@@ -906,6 +924,8 @@ impl UnifiedFullViewingKey {
 /// A [ZIP 316](https://zips.z.cash/zip-0316) unified incoming viewing key.
 #[derive(Clone, Debug)]
 pub struct UnifiedIncomingViewingKey {
+//    #[cfg(feature = "transparent-inputs")]
+//    transparent: Option<secp256k1::PublicKey>,
     #[cfg(feature = "transparent-inputs")]
     transparent: Option<zcash_primitives::legacy::keys::ExternalIvk>,
     #[cfg(feature = "sapling")]

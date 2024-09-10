@@ -31,7 +31,12 @@ pub enum Fvk {
     /// the BIP 44 derivation path as the "transparent viewing key"; all addresses derived
     /// from this node use non-hardened derivation, and can thus be derived just from this
     /// pruned extended public key.
-    P2pkh([u8; 65]),
+
+    //P2pkh([u8; 65]),
+    //TODO: pad 32 bytes of zeros, and use same size key even for bip44 wallets
+    // for now, we'll just shrink it to 33
+
+    P2pkh([u8; 33]),
 
     Unknown {
         typecode: u32,

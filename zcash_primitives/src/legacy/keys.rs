@@ -202,6 +202,14 @@ impl AccountPubKey {
             .map(ExternalIvk)
     }
 
+    pub fn derive_ext_ivk_from_compressed_key(public_key: secp256k1::PublicKey) -> ExternalIvk {
+            let chain_code = [0; 32].to_vec();
+	    let fake_extended_pubkey = ExtendedPubKey { public_key, chain_code };
+            ExternalIvk(fake_extended_pubkey)
+//            .derive_public_key(KeyIndex::Normal(0))
+//            .map(ExternalIvk)
+    }
+
     /// Derives the BIP44 public key at the internal "change level" path
     /// `m/44'/<coin_type>'/<account>'/1`.
     pub fn derive_internal_ivk(&self) -> Result<InternalIvk, hdwallet::error::Error> {
@@ -247,6 +255,15 @@ impl AccountPubKey {
             chain_code,
         }))
     }
+
+    pub fn deserialize_and_pad(data: &[u8; 33]) -> Result<Self, hdwallet::error::Error> {
+        let chain_code = [0; 32].to_vec();
+        let public_key = PublicKey::from_slice(data)?;
+        Ok(AccountPubKey(ExtendedPubKey {
+            public_key,
+            chain_code,
+        }))
+    }
 }
 
 /// Derives the P2PKH transparent address corresponding to the given pubkey.
@@ -262,6 +279,7 @@ pub(crate) mod private {
     pub trait SealedChangeLevelKey {
         fn extended_pubkey(&self) -> &ExtendedPubKey;
         fn from_extended_pubkey(key: ExtendedPubKey) -> Self;
+        fn from_compressed_pubkey(key: secp256k1::PublicKey) -> Self;
     }
 }
 
@@ -339,6 +357,15 @@ pub trait IncomingViewingKey: private::SealedChangeLevelKey + std::marker::Sized
 pub struct ExternalIvk(ExtendedPubKey);
 
 impl private::SealedChangeLevelKey for ExternalIvk {
+
+    fn from_compressed_pubkey(key: PublicKey) -> Self {
+       let chain_code = [0, 32].to_vec();
+       let pubkey_bytes = key.serialize();
+       warn!(">>>>> chain_code: {:?}, pubkey_bytes {:?}", chain_code, pubkey_bytes);
+       let extended_pubkey = ExtendedPubKey { public_key: key, chain_code};
+       ExternalIvk(extended_pubkey)
+    }
+
     fn extended_pubkey(&self) -> &ExtendedPubKey {
         &self.0
     }
@@ -361,6 +388,14 @@ impl IncomingViewingKey for ExternalIvk {}
 pub struct InternalIvk(ExtendedPubKey);
 
 impl private::SealedChangeLevelKey for InternalIvk {
+    fn from_compressed_pubkey(key: PublicKey) -> Self {
+       let chain_code = [0, 32].to_vec();
+       let pubkey_bytes = key.serialize();
+       warn!(">>>>> chain_code: {:?}, pubkey_bytes {:?}", chain_code, pubkey_bytes);
+       let extended_pubkey = ExtendedPubKey { public_key: key, chain_code};
+       InternalIvk(extended_pubkey)
+    }
+
     fn extended_pubkey(&self) -> &ExtendedPubKey {
         &self.0
     }
