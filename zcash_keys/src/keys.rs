@@ -224,7 +224,7 @@ impl UnifiedSpendingKey {
         }
 
         if transparentkey.len() != 32 {
-           panic!("transparentkey MUST be exactly 32 bytes");
+           panic!("transparentkey MUST be exactly 32 bytes, key {:?}\n seed: {:?}", transparentkey, seed);
         }
 
         UnifiedSpendingKey::from_checked_parts(
@@ -769,7 +769,7 @@ impl UnifiedFullViewingKey {
 //                #[cfg(feature = "transparent-inputs")]
 //                unified::Fvk::P2pkh(data) => secp256k1::PublicKey::from_slice(data)
                 #[cfg(feature = "transparent-inputs")]
-                unified::Fvk::P2pkh(data) => legacy::AccountPubKey::deserialize_and_pad(data)
+                unified::Fvk::P2pkh(data) => legacy::AccountPubKey::deserialize(data)
                     .map_err(|_| DecodingError::KeyDataInvalid(Typecode::P2pkh))
                     .map(|tfvk| {
                         transparent = Some(tfvk);

@@ -816,19 +816,19 @@ where
                 FeeRuleT::Error,
             >,
         > {
-            let address_metadata = known_addrs
+            let _address_metadata = known_addrs
                 .get(addr)
                 .ok_or(Error::AddressNotRecognized(*addr))?
                 .clone()
                 .ok_or_else(|| Error::NoSpendingKey(addr.encode(params)))?;
 
             let secret_key = usk
-                .transparent()
-                .derive_secret_key(address_metadata.scope(), address_metadata.address_index())
-                .unwrap();
+                .transparent();
+//                .derive_secret_key(address_metadata.scope(), address_metadata.address_index())
+//                .unwrap();
 
             utxos_spent.push(outpoint.clone());
-            builder.add_transparent_input(secret_key, outpoint, utxo)?;
+            builder.add_transparent_input(*secret_key, outpoint, utxo)?;
 
             Ok(())
         };
@@ -923,14 +923,15 @@ where
 
     let sapling_internal_ovk = || {
         #[cfg(feature = "transparent-inputs")]
-        if proposal_step.is_shielding() {
+        /*if proposal_step.is_shielding() {
             return Some(sapling::keys::OutgoingViewingKey(
+               // TODO: Patch in HD Seed ovk here, mirroring that from verus core
                 usk.transparent()
                     .to_account_pubkey()
                     .internal_ovk()
                     .as_bytes(),
             ));
-        }
+        }*/
 
         Some(sapling_dfvk.to_ovk(Scope::Internal))
     };
