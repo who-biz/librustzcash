@@ -223,8 +223,8 @@ impl UnifiedSpendingKey {
             panic!("ZIP 32 seeds MUST be at least 32 bytes");
         }
 
-        if transparentkey.len() != 32 {
-           panic!("transparentkey MUST be exactly 32 bytes, key {:?}\n seed: {:?}", transparentkey, seed);
+        if transparentkey.len() != 33 {
+           panic!("transparentkey MUST be exactly 33 bytes, key {:?}\n seed: {:?}", transparentkey, seed);
         }
 
         UnifiedSpendingKey::from_checked_parts(
