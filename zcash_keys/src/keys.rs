@@ -1174,13 +1174,16 @@ impl UnifiedIncomingViewingKey {
                 // If a transparent receiver type is requested, we must be able to construct an
                 // address; if we're unable to do so, then no Unified Address exists at this
                 // diversifier.
-                let transparent_j = to_transparent_child_index(_j)
-                    .ok_or(AddressGenerationError::InvalidTransparentChildIndex(_j))?;
 
-                transparent = Some(
-                    tivk.derive_address(transparent_j)
-                        .map_err(|_| AddressGenerationError::InvalidTransparentChildIndex(_j))?,
-                );
+                //let transparent_j = to_transparent_child_index(_j)
+                //    .ok_or(AddressGenerationError::InvalidTransparentChildIndex(_j))?;
+
+                //transparent = Some(
+                //    tivk.derive_address(transparent_j)
+                //        .map_err(|_| AddressGenerationError::InvalidTransparentChildIndex(_j))?,
+                //);
+
+                transparent = Some(tivk.derive_legacy_address());
             } else {
                 return Err(AddressGenerationError::KeyNotAvailable(Typecode::P2pkh));
             }

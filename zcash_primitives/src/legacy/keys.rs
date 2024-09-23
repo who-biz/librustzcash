@@ -157,7 +157,9 @@ impl AccountPrivKey {
     }
 
     pub fn to_account_pubkey(&self) -> AccountPubKey {
-        AccountPubKey(ExtendedPubKey::from_private_key(&self.0))
+        let account_pubkey = AccountPubKey(ExtendedPubKey::from_private_key(&self.0));
+	warn!("account_pubkey: {:?}", account_pubkey);
+	account_pubkey
     }
 
     /// Derives the BIP44 private spending key for the child path
@@ -173,11 +175,11 @@ impl AccountPrivKey {
             .map(|k| k.private_key)
     }
 
-    /// Derives the BIP44 private spending key for the child path
-    /// `m/44'/<coin_type>'/<account>'/<scope>/<child_index>`.
+    /// Derives the raw secret key, for a non-HD wallet
     pub fn derive_legacy_secret_key(
         &self,
     ) -> secp256k1::SecretKey {
+	warn!("derive_legacy_secret_key {:?}", self.0.private_key);
         self.0.private_key
     }
 
@@ -347,7 +349,12 @@ pub trait IncomingViewingKey: private::SealedChangeLevelKey + std::marker::Sized
     ) -> TransparentAddress {
         let fake_extkey = self
             .extended_pubkey();
-        pubkey_to_address(&fake_extkey.public_key)
+
+        let address = pubkey_to_address(&fake_extkey.public_key);
+
+	warn!("extendedpubkey.public_key {:?}", fake_extkey.public_key);
+	warn!("address {:?}", address);
+	address
     }
 
     /// Searches the space of child indexes for an index that will
