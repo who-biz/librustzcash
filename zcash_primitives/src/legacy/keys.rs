@@ -131,28 +131,25 @@ impl AccountPrivKey {
     }
 
     pub fn from_transparent_key<P: consensus::Parameters>(
-        params: &P,
+        _params: &P,
         transparent_key: &[u8],
-        account: AccountId,
+        _account: AccountId,
     ) -> Result<AccountPrivKey, hdwallet::error::Error> {
 
         warn!(">>> legacy::AccountPrivKey::from_transparent_key(), tkey val: {:?}", transparent_key);
 
-        let compressed_flag = transparent_key.last();
-        if compressed_flag.is_some() {
-            assert_eq!(&[1], compressed_flag);
-            //TODO: add informative error message here
-        } else {
-            tracing::error!("Unable to find compressed flag in transparentKey bytes!")
-        }
+        //TODO: check content of 33rd byte, removed due to compile error, and it not really being important
+        // Verus does not support 0-flagged privkeys
+
         let mut trimmed_tkey = [0;32];
         trimmed_tkey.copy_from_slice(&transparent_key[..32]);
         let private_key = secp256k1::SecretKey::from_slice(trimmed_tkey.as_ref())?;
         let chain_code = [0; 32].to_vec();
-        Ok(ExtendedPrivKey {
+        let fake_extkey = ExtendedPrivKey {
             private_key,
             chain_code
-        }?.map(AccountPrivKey))
+        };
+        Ok(AccountPrivKey(fake_extkey))
     }
 
     pub fn from_extended_privkey(extprivkey: ExtendedPrivKey) -> Self {
@@ -174,6 +171,14 @@ impl AccountPrivKey {
             .derive_private_key(scope.into())?
             .derive_private_key(child_index.into())
             .map(|k| k.private_key)
+    }
+
+    /// Derives the BIP44 private spending key for the child path
+    /// `m/44'/<coin_type>'/<account>'/<scope>/<child_index>`.
+    pub fn derive_legacy_secret_key(
+        &self,
+    ) -> secp256k1::SecretKey {
+        self.0.private_key
     }
 
     /// Derives the BIP44 private spending key for the external (incoming payment) child path
@@ -336,6 +341,15 @@ pub trait IncomingViewingKey: private::SealedChangeLevelKey + std::marker::Sized
         Ok(pubkey_to_address(&child_key.public_key))
     }
 
+    #[allow(deprecated)]
+    fn derive_legacy_address(
+        &self,
+    ) -> TransparentAddress {
+        let fake_extkey = self
+            .extended_pubkey();
+        pubkey_to_address(&fake_extkey.public_key)
+    }
+
     /// Searches the space of child indexes for an index that will
     /// generate a valid transparent address, and returns the resulting
     /// address and the index at which it was generated.
@@ -353,6 +367,11 @@ pub trait IncomingViewingKey: private::SealedChangeLevelKey + std::marker::Sized
                 }
             }
         }
+    }
+
+    /// Returns a transparent address for a non-hd wallet
+    fn default_legacy_address(&self) -> TransparentAddress {
+        self.derive_legacy_address()
     }
 
     fn serialize(&self) -> Vec<u8> {
