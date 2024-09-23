@@ -130,6 +130,31 @@ impl AccountPrivKey {
             .map(AccountPrivKey)
     }
 
+    pub fn from_transparent_key<P: consensus::Parameters>(
+        params: &P,
+        transparent_key: &[u8],
+        account: AccountId,
+    ) -> Result<AccountPrivKey, hdwallet::error::Error> {
+
+        warn!(">>> legacy::AccountPrivKey::from_transparent_key(), tkey val: {:?}", transparent_key);
+
+        let compressed_flag = transparent_key.last();
+        if compressed_flag.is_some() {
+            assert_eq!(&[1], compressed_flag);
+            //TODO: add informative error message here
+        } else {
+            tracing::error!("Unable to find compressed flag in transparentKey bytes!")
+        }
+        let mut trimmed_tkey = [0;32];
+        trimmed_tkey.copy_from_slice(&transparent_key[..32]);
+        let private_key = secp256k1::SecretKey::from_slice(trimmed_tkey.as_ref())?;
+        let chain_code = [0; 32].to_vec();
+        Ok(ExtendedPrivKey {
+            private_key,
+            chain_code
+        }?.map(AccountPrivKey))
+    }
+
     pub fn from_extended_privkey(extprivkey: ExtendedPrivKey) -> Self {
         AccountPrivKey(extprivkey)
     }
