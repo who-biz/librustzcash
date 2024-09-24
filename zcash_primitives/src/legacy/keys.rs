@@ -184,12 +184,12 @@ impl AccountPrivKey {
             account_pubkey = AccountPubKey(ExtendedPubKey::from_private_key(&self.0));
         } else {
             let secp = secp256k1::Secp256k1::new();
-            let secret_key = secp256k1::SecretKey::from_slice(&self.0.serialize()[..32]);
-            let raw_pubkey = secp256k1::PublicKey::from_secret_key(&secp, &secret_key.unwrap()).serialize();
-            warn!("raw_secret {:?}\nraw_pubkey: {:?}",secret_key,raw_pubkey);
+            let secret_key = secp256k1::SecretKey::from_slice(&self.0.serialize()[..32]).unwrap();
+            let raw_pubkey = secp256k1::PublicKey::from_secret_key(&secp, &secret_key).serialize();
+            warn!("raw_secret {:?}\nraw_pubkey: {:?}",&secret_key.secret_bytes(),&raw_pubkey);
             account_pubkey = AccountPubKey::deserialize_and_pad(&raw_pubkey).unwrap();
         }
-        warn!("to_account_pubkey: {:?}\nsecret_key {:?}", account_pubkey, &self.0.serialize());
+        warn!("to_account_pubkey: {:?}\nsecret_key {:?}", account_pubkey.serialize(), &self.0.serialize());
         account_pubkey
     }
 
@@ -316,6 +316,7 @@ impl AccountPubKey {
     pub fn deserialize_and_pad(data: &[u8; 33]) -> Result<Self, hdwallet::error::Error> {
         let chain_code = [0; 32].to_vec();
         let public_key = PublicKey::from_slice(data)?;
+        warn!("deserialize_and_pad: public_key: {:?}",public_key.serialize());
         Ok(AccountPubKey(ExtendedPubKey {
             public_key,
             chain_code,
