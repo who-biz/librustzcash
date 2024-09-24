@@ -251,6 +251,21 @@ impl AccountPrivKey {
 pub struct AccountPubKey(ExtendedPubKey);
 
 impl AccountPubKey {
+
+    /// Performs a check for zero-byte chain code in extended public key
+    /// Returns true if chain code is populated with non-zero values
+    pub fn is_bip44(&self) -> bool {
+        let chain_code = &self.0.chain_code;
+	warn!("pubkey_is_bip44: chain_code {:?}", chain_code);
+	let mut ret = false;
+        for &byte in chain_code {
+            if byte != 0 {
+		ret = true;
+            }
+	}
+	ret
+    }
+
     /// Derives the BIP44 public key at the external "change level" path
     /// `m/44'/<coin_type>'/<account>'/0`.
     pub fn derive_external_ivk(&self) -> Result<ExternalIvk, hdwallet::error::Error> {
@@ -259,12 +274,12 @@ impl AccountPubKey {
             .map(ExternalIvk)
     }
 
-    pub fn derive_ext_ivk_from_compressed_key(public_key: secp256k1::PublicKey) -> ExternalIvk {
+    pub fn derive_ext_ivk_from_legacy_key(&self) -> ExternalIvk {
             let chain_code = [0; 32].to_vec();
+            let public_key = self.0.public_key;
+            warn!("derive_ext_ivk_from_legacy: public_key {:?}",public_key);
 	    let fake_extended_pubkey = ExtendedPubKey { public_key, chain_code };
             ExternalIvk(fake_extended_pubkey)
-//            .derive_public_key(KeyIndex::Normal(0))
-//            .map(ExternalIvk)
     }
 
     /// Derives the BIP44 public key at the internal "change level" path
@@ -273,6 +288,14 @@ impl AccountPubKey {
         self.0
             .derive_public_key(KeyIndex::Normal(1))
             .map(InternalIvk)
+    }
+
+    pub fn derive_int_ivk_from_legacy_key(&self) -> InternalIvk {
+            let chain_code = [0; 32].to_vec();
+            let public_key = self.0.public_key;
+            warn!("derive_int_ivk_from_legacy: public_key {:?}",public_key);
+	    let fake_extended_pubkey = ExtendedPubKey { public_key, chain_code };
+            InternalIvk(fake_extended_pubkey)
     }
 
     /// Derives the internal ovk and external ovk corresponding to this
@@ -378,6 +401,7 @@ pub trait IncomingViewingKey: private::SealedChangeLevelKey + std::marker::Sized
 
         let address = pubkey_to_address(&fake_extkey.public_key);
 
+	warn!("fake_extkey {:?}", fake_extkey);
 	warn!("extendedpubkey.public_key {:?}", fake_extkey.public_key);
 	warn!("address {:?}", address);
 	address
