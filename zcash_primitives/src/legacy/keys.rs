@@ -156,10 +156,18 @@ impl AccountPrivKey {
         AccountPrivKey(extprivkey)
     }
 
+    /// Derives the raw secret key, for a non-HD wallet
+    pub fn derive_legacy_secret_key(
+        &self,
+    ) -> secp256k1::SecretKey {
+        warn!("derive_legacy_secret_key {:?}", self.0.private_key);
+        self.0.private_key
+    }
+
     pub fn to_account_pubkey(&self) -> AccountPubKey {
         let account_pubkey = AccountPubKey(ExtendedPubKey::from_private_key(&self.0));
-	warn!("account_pubkey: {:?}", account_pubkey);
-	account_pubkey
+        warn!("to_account_pubkey: {:?}\nsecret_key {:?}", account_pubkey, &self.0.serialize());
+        account_pubkey
     }
 
     /// Derives the BIP44 private spending key for the child path
@@ -175,20 +183,13 @@ impl AccountPrivKey {
             .map(|k| k.private_key)
     }
 
-    /// Derives the raw secret key, for a non-HD wallet
-    pub fn derive_legacy_secret_key(
-        &self,
-    ) -> secp256k1::SecretKey {
-	warn!("derive_legacy_secret_key {:?}", self.0.private_key);
-        self.0.private_key
-    }
-
     /// Derives the BIP44 private spending key for the external (incoming payment) child path
     /// `m/44'/<coin_type>'/<account>'/0/<child_index>`.
     pub fn derive_external_secret_key(
         &self,
         child_index: NonHardenedChildIndex,
     ) -> Result<secp256k1::SecretKey, hdwallet::error::Error> {
+	warn!("derive_external_secret: {:?}", self);
         self.derive_secret_key(zip32::Scope::External.into(), child_index)
     }
 
@@ -198,6 +199,7 @@ impl AccountPrivKey {
         &self,
         child_index: NonHardenedChildIndex,
     ) -> Result<secp256k1::SecretKey, hdwallet::error::Error> {
+	warn!("derive_internal_secret: {:?}", self);
         self.derive_secret_key(zip32::Scope::Internal.into(), child_index)
     }
 
