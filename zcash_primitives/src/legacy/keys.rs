@@ -4,7 +4,7 @@ use hdwallet::{
     traits::{Deserialize, Serialize},
     ExtendedPrivKey, ExtendedPubKey, KeyIndex,
 };
-use secp256k1::PublicKey;
+use secp256k1::{PublicKey, Secp256k1};
 use sha2::{Digest, Sha256};
 use subtle::{Choice, ConstantTimeEq};
 
@@ -130,6 +130,20 @@ impl AccountPrivKey {
             .map(AccountPrivKey)
     }
 
+    /// Performs a check for zero-byte chain code in extended private key
+    /// Returns true if chain code is populated with non-zero values
+    pub fn is_bip44(&self) -> bool {
+        let chain_code = &self.0.chain_code;
+	warn!("is_bip44: chain_code {:?}", chain_code);
+	let mut ret = false;
+        for &byte in chain_code {
+            if byte != 0 {
+		ret = true;
+            }
+	}
+	ret
+    }
+
     pub fn from_transparent_key<P: consensus::Parameters>(
         _params: &P,
         transparent_key: &[u8],
@@ -165,7 +179,16 @@ impl AccountPrivKey {
     }
 
     pub fn to_account_pubkey(&self) -> AccountPubKey {
-        let account_pubkey = AccountPubKey(ExtendedPubKey::from_private_key(&self.0));
+	let account_pubkey;
+	if self.is_bip44() {
+            account_pubkey = AccountPubKey(ExtendedPubKey::from_private_key(&self.0));
+        } else {
+            let secp = secp256k1::Secp256k1::new();
+            let secret_key = secp256k1::SecretKey::from_slice(&self.0.serialize()[..32]);
+            let raw_pubkey = secp256k1::PublicKey::from_secret_key(&secp, &secret_key.unwrap()).serialize();
+            warn!("raw_secret {:?}\nraw_pubkey: {:?}",secret_key,raw_pubkey);
+            account_pubkey = AccountPubKey::deserialize_and_pad(&raw_pubkey).unwrap();
+        }
         warn!("to_account_pubkey: {:?}\nsecret_key {:?}", account_pubkey, &self.0.serialize());
         account_pubkey
     }
