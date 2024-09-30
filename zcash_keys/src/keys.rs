@@ -6,6 +6,8 @@ use std::{
 
 use secp256k1::{Secp256k1};
 
+use tracing::{warn};
+
 use zcash_address::unified::{self, Container, Encoding, Typecode, Ufvk, Uivk};
 use zcash_protocol::consensus;
 use zip32::{AccountId, DiversifierIndex};
@@ -780,6 +782,7 @@ impl UnifiedFullViewingKey {
                 unified::Fvk::P2pkh(data) => legacy::AccountPubKey::deserialize(data)
                     .map_err(|_| DecodingError::KeyDataInvalid(Typecode::P2pkh))
                     .map(|tfvk| {
+                       warn!("tfvk: {:?}", tfvk.serialize());
                         transparent = Some(tfvk);
                         None
                     })
@@ -1087,7 +1090,11 @@ impl UnifiedIncomingViewingKey {
         let items = items.chain(
             self.transparent
                 .as_ref()
-                .map(|tivk| tivk.serialize().try_into().unwrap())
+                .map(|tivk| { 
+                       warn!("tivk: {:?}", tivk.serialize());
+                        tivk.serialize().try_into().unwrap()
+                      }
+                 )
                 .map(unified::Ivk::P2pkh),
         );
 
