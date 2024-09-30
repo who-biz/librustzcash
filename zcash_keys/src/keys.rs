@@ -1190,6 +1190,7 @@ impl UnifiedIncomingViewingKey {
                 //        .map_err(|_| AddressGenerationError::InvalidTransparentChildIndex(_j))?,
                 //);
 
+                warn!("zcash_keys::address::tivk {:?}", tivk.serialize());
                 transparent = Some(tivk.derive_legacy_address());
             } else {
                 return Err(AddressGenerationError::KeyNotAvailable(Typecode::P2pkh));

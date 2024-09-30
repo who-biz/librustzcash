@@ -269,9 +269,16 @@ impl AccountPubKey {
     /// Derives the BIP44 public key at the external "change level" path
     /// `m/44'/<coin_type>'/<account>'/0`.
     pub fn derive_external_ivk(&self) -> Result<ExternalIvk, hdwallet::error::Error> {
-        self.0
-            .derive_public_key(KeyIndex::Normal(0))
-            .map(ExternalIvk)
+        let account_key = AccountPubKey(self.0.clone());
+        warn!("derive_external_ivk: {:?}", self.0);
+	if account_key.is_bip44() {
+            self.0
+                .derive_public_key(KeyIndex::Normal(0))
+                .map(ExternalIvk)
+        } else {
+            Ok(account_key
+                .derive_ext_ivk_from_legacy_key())
+        }
     }
 
     pub fn derive_ext_ivk_from_legacy_key(&self) -> ExternalIvk {
