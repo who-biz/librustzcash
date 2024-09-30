@@ -401,8 +401,8 @@ pub trait IncomingViewingKey: private::SealedChangeLevelKey + std::marker::Sized
 
         let address = pubkey_to_address(&fake_extkey.public_key);
 
-	warn!("fake_extkey {:?}", fake_extkey);
-	warn!("extendedpubkey.public_key {:?}", fake_extkey.public_key);
+	warn!("fake_extkey {:?}", fake_extkey.serialize());
+	warn!("extendedpubkey.public_key {:?}", fake_extkey.public_key.serialize());
 	warn!("address {:?}", address);
 	address
     }
