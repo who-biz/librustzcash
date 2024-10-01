@@ -130,7 +130,7 @@
 #![deny(rustdoc::broken_intra_doc_links)]
 
 mod convert;
-mod encoding;
+pub mod encoding;
 mod kind;
 
 #[cfg(any(test, feature = "test-dependencies"))]

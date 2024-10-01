@@ -284,7 +284,7 @@ impl AccountPubKey {
     pub fn derive_ext_ivk_from_legacy_key(&self) -> ExternalIvk {
             let chain_code = [0; 32].to_vec();
             let public_key = self.0.public_key;
-            warn!("derive_ext_ivk_from_legacy: public_key {:?}",public_key);
+            warn!("derive_ext_ivk_from_legacy: public_key {:?}",public_key.serialize());
 	    let fake_extended_pubkey = ExtendedPubKey { public_key, chain_code };
             ExternalIvk(fake_extended_pubkey)
     }
@@ -357,9 +357,15 @@ impl AccountPubKey {
 /// Derives the P2PKH transparent address corresponding to the given pubkey.
 #[deprecated(note = "This function will be removed from the public API in an upcoming refactor.")]
 pub fn pubkey_to_address(pubkey: &secp256k1::PublicKey) -> TransparentAddress {
-    TransparentAddress::PublicKeyHash(
+    warn!("pubkey_to_address::pubkey {:?}", pubkey.serialize());
+//    let address = TransparentAddress::PublicKeyHash(
+    //);
+    let address = TransparentAddress::PublicKeyHash(
         *ripemd::Ripemd160::digest(Sha256::digest(pubkey.serialize())).as_ref(),
-    )
+    );
+
+    zcash_address::encoding::encode_b58([60],&ripemd::Ripemd160::digest(Sha256::digest(pubkey.serialize())));
+    address
 }
 
 pub(crate) mod private {

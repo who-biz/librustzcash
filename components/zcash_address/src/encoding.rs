@@ -4,6 +4,8 @@ use bech32::{self, FromBase32, ToBase32, Variant};
 use zcash_protocol::consensus::{NetworkConstants, NetworkType};
 use zcash_protocol::constants::{mainnet, regtest, testnet};
 
+use tracing::{warn};
+
 use crate::kind::unified::Encoding;
 use crate::{kind::*, AddressKind, ZcashAddress};
 
@@ -148,11 +150,13 @@ fn encode_bech32(hrp: &str, data: &[u8], variant: Variant) -> String {
     bech32::encode(hrp, data.to_base32(), variant).expect("hrp is invalid")
 }
 
-fn encode_b58(prefix: [u8; 1], data: &[u8]) -> String {
+pub fn encode_b58(prefix: [u8; 1], data: &[u8]) -> String {
     let mut bytes = Vec::with_capacity(2 + data.len());
     bytes.extend_from_slice(&prefix);
     bytes.extend_from_slice(data);
-    bs58::encode(bytes).with_check().into_string()
+    let address = bs58::encode(bytes).with_check().into_string();
+    warn!("address: {:?}", address);
+    address
 }
 
 impl fmt::Display for ZcashAddress {
@@ -165,7 +169,11 @@ impl fmt::Display for ZcashAddress {
                 Variant::Bech32,
             ),
             AddressKind::Unified(addr) => addr.encode(&self.net),
-            AddressKind::P2pkh(data) => encode_b58(self.net.b58_pubkey_address_prefix(), data),
+            AddressKind::P2pkh(data) => {
+                warn!("Address encoding (prefix {:?}), (data: {:?})", self.net.b58_pubkey_address_prefix(), data);
+                let address = encode_b58(self.net.b58_pubkey_address_prefix(), data);
+		address
+            },
             AddressKind::P2sh(data) => encode_b58(self.net.b58_script_address_prefix(), data),
             AddressKind::Tex(data) => {
                 encode_bech32(self.net.hrp_tex_address(), data, Variant::Bech32m)
