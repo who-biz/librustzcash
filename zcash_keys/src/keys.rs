@@ -225,13 +225,20 @@ impl UnifiedSpendingKey {
             panic!("ZIP 32 seeds MUST be at least 32 bytes");
         }
 
-        if transparentkey.len() != 33 {
+        if transparentkey.len() != 33 && transparentkey.len() != 0 {
            panic!("transparentkey MUST be exactly 33 bytes, key {:?}\n seed: {:?}", transparentkey, seed);
+        }
+
+        let transparent_key;
+        if transparentkey.len() > 0 {
+            transparent_key = legacy::AccountPrivKey::from_transparent_key(_params, transparentkey, _account)?;
+        } else {
+            transparent_key = legacy::AccountPrivKey::from_seed(_params, seed, _account)?;
         }
 
         UnifiedSpendingKey::from_checked_parts(
             #[cfg(feature = "transparent-inputs")]
-            legacy::AccountPrivKey::from_transparent_key(_params, transparentkey, _account)?,
+            transparent_key,
             //.map_err(|e: secp256k1::Error| DerivationError::Transparent(e))?,
             #[cfg(feature = "sapling")]
             sapling::spending_key(seed, _params.coin_type(), _account),
