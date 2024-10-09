@@ -816,17 +816,21 @@ where
                 FeeRuleT::Error,
             >,
         > {
-            let _address_metadata = known_addrs
+            let address_metadata = known_addrs
                 .get(addr)
                 .ok_or(Error::AddressNotRecognized(*addr))?
                 .clone()
                 .ok_or_else(|| Error::NoSpendingKey(addr.encode(params)))?;
 
-            let secret_key = usk
-                .transparent()
-                .derive_legacy_secret_key();
-                //.derive_secret_key(address_metadata.scope(), address_metadata.address_index())
-                //.unwrap();
+            let secret_key;
+                if usk.transparent().is_bip44() {
+                    secret_key = usk.transparent()
+                        .derive_secret_key(address_metadata.scope(), address_metadata.address_index())
+                        .unwrap();
+                } else {
+                    secret_key = usk.transparent()
+                        .derive_legacy_secret_key();
+                }
 
             utxos_spent.push(outpoint.clone());
             builder.add_transparent_input(secret_key, outpoint, utxo)?;
