@@ -741,6 +741,8 @@ pub(crate) fn get_unified_full_viewing_keys<P: consensus::Parameters>(
     // Fetch the UnifiedFullViewingKeys we are tracking
     let mut stmt_fetch_accounts = conn.prepare("SELECT id, ufvk FROM accounts")?;
 
+    warn!("get_unified_full_viewing_keys called!");
+
     let rows = stmt_fetch_accounts.query_map([], |row| {
         let acct: u32 = row.get(0)?;
         let ufvk_str: Option<String> = row.get(1)?;
@@ -774,6 +776,8 @@ pub(crate) fn get_account_for_ufvk<P: consensus::Parameters>(
     let transparent_item = ufvk.transparent().map(|k| k.serialize());
     #[cfg(not(feature = "transparent-inputs"))]
     let transparent_item: Option<Vec<u8>> = None;
+
+    warn!("get_account_for_ufvk called!");
 
     let mut stmt = conn.prepare(
         "SELECT id, account_kind, hd_seed_fingerprint, hd_account_index, ufvk
@@ -846,6 +850,8 @@ pub(crate) fn get_derived_account<P: consensus::Parameters>(
         WHERE hd_seed_fingerprint = :hd_seed_fingerprint
           AND hd_account_index = :account_id",
     )?;
+
+    warn!("get_derived_account called!");
 
     let mut accounts = stmt.query_and_then::<_, SqliteClientError, _, _>(
         named_params![
@@ -1110,6 +1116,8 @@ pub(crate) fn get_wallet_summary<P: consensus::Parameters>(
             return Ok(None);
         }
     };
+
+    warn!("wallet::get_wallet_summary called!");
 
     let birthday_height =
         wallet_birthday(tx)?.expect("If a scan range exists, we know the wallet birthday.");
@@ -1654,6 +1662,8 @@ pub(crate) fn get_account<P: Parameters>(
         WHERE id = :account_id
         "#,
     )?;
+
+    warn!("get_account called!");
 
     let mut result = sql.query(named_params![":account_id": account_id.0])?;
     let row = result.next()?;
