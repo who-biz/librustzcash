@@ -5,15 +5,11 @@
 /// [SLIP 44]: https://github.com/satoshilabs/slips/blob/master/slip-0044.md
 pub const COIN_TYPE: u32 = 133;
 
-/// TODO: Verus source code also has 133 as coinType constant, but there is a comment indicating
-/// that this is for Zcash, and should be verus. Ask about this
-
-
-/// The HRP for a Bech32-encoded mainnet Sapling [`ExtendedSpendingKey`].
+/// The HRP for a Bech32-encoded mainnet [`ExtendedSpendingKey`].
 ///
 /// Defined in [ZIP 32].
 ///
-/// [`ExtendedSpendingKey`]: https://docs.rs/sapling-crypto/latest/sapling_crypto/zip32/struct.ExtendedSpendingKey.html
+/// [`ExtendedSpendingKey`]: zcash_primitives::zip32::ExtendedSpendingKey
 /// [ZIP 32]: https://github.com/zcash/zips/blob/master/zip-0032.rst
 pub const HRP_SAPLING_EXTENDED_SPENDING_KEY: &str = "secret-extended-key-main";
 
@@ -21,17 +17,27 @@ pub const HRP_SAPLING_EXTENDED_SPENDING_KEY: &str = "secret-extended-key-main";
 ///
 /// Defined in [ZIP 32].
 ///
-/// [`ExtendedFullViewingKey`]: https://docs.rs/sapling-crypto/latest/sapling_crypto/zip32/struct.ExtendedFullViewingKey.html
+/// [`ExtendedFullViewingKey`]: zcash_primitives::zip32::ExtendedFullViewingKey
 /// [ZIP 32]: https://github.com/zcash/zips/blob/master/zip-0032.rst
 pub const HRP_SAPLING_EXTENDED_FULL_VIEWING_KEY: &str = "zxviews";
 
-/// The HRP for a Bech32-encoded mainnet Sapling [`PaymentAddress`].
+/// The HRP for a Bech32-encoded mainnet [`PaymentAddress`].
 ///
 /// Defined in section 5.6.4 of the [Zcash Protocol Specification].
 ///
-/// [`PaymentAddress`]: https://docs.rs/sapling-crypto/latest/sapling_crypto/struct.PaymentAddress.html
+/// [`PaymentAddress`]: zcash_primitives::primitives::PaymentAddress
 /// [Zcash Protocol Specification]: https://github.com/zcash/zips/blob/master/protocol/protocol.pdf
 pub const HRP_SAPLING_PAYMENT_ADDRESS: &str = "zs";
+
+/// The prefix for a Base58Check-encoded mainnet [`TransparentAddress::PublicKey`].
+///
+/// [`TransparentAddress::PublicKey`]: zcash_primitives::legacy::TransparentAddress::PublicKey
+pub const B58_PUBKEY_ADDRESS_PREFIX: [u8; 1] = [0x3c];
+
+/// The prefix for a Base58Check-encoded mainnet [`TransparentAddress::Script`].
+///
+/// [`TransparentAddress::Script`]: zcash_primitives::legacy::TransparentAddress::Script
+pub const B58_SCRIPT_ADDRESS_PREFIX: [u8; 1] = [0x55];
 
 /// The prefix for a Base58Check-encoded mainnet Sprout address.
 ///
@@ -39,16 +45,6 @@ pub const HRP_SAPLING_PAYMENT_ADDRESS: &str = "zs";
 ///
 /// [sproutpaymentaddrencoding]: https://zips.z.cash/protocol/protocol.pdf#sproutpaymentaddrencoding
 pub const B58_SPROUT_ADDRESS_PREFIX: [u8; 1] = [0x9a];
-
-/// The prefix for a Base58Check-encoded mainnet [`PublicKeyHash`].
-///
-/// [`PublicKeyHash`]: https://docs.rs/zcash_primitives/latest/zcash_primitives/legacy/enum.TransparentAddress.html
-pub const B58_PUBKEY_ADDRESS_PREFIX: [u8; 1] = [60];
-
-/// The prefix for a Base58Check-encoded mainnet [`ScriptHash`].
-///
-/// [`ScriptHash`]: https://docs.rs/zcash_primitives/latest/zcash_primitives/legacy/enum.TransparentAddress.html
-pub const B58_SCRIPT_ADDRESS_PREFIX: [u8; 1] = [0x55];
 
 /// The HRP for a Bech32m-encoded mainnet [ZIP 320] TEX address.
 ///

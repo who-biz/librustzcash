@@ -1,5 +1,11 @@
 //! Network-specific Zcash constants.
 
-pub mod mainnet;
-pub mod regtest;
-pub mod testnet;
+pub mod zec;
+pub mod vrsc;
+
+/// Different networks used for differentiating between sapling activation heights, constants, etc. and their IDs
+#[derive(Copy, Clone)]
+pub enum ChainNetwork {
+    VRSC,
+    ZEC
+}

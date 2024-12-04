@@ -6,7 +6,7 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::ops::{Add, Bound, RangeBounds, Sub};
 
-use crate::constants::{mainnet, regtest, testnet};
+use crate::constants::vrsc::{mainnet, regtest, testnet};
 
 /// A wrapper type representing blockchain heights.
 ///

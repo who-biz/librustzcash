@@ -2,7 +2,7 @@ use std::{convert::TryInto, error::Error, fmt, str::FromStr};
 
 use bech32::{self, FromBase32, ToBase32, Variant};
 use zcash_protocol::consensus::{NetworkConstants, NetworkType};
-use zcash_protocol::constants::{mainnet, regtest, testnet};
+use zcash_protocol::constants::vrsc::{mainnet, regtest, testnet};
 
 use tracing::{warn};
 
@@ -117,7 +117,7 @@ impl FromStr for ZcashAddress {
                     prefix @ (mainnet::B58_PUBKEY_ADDRESS_PREFIX
                     | mainnet::B58_SCRIPT_ADDRESS_PREFIX
                     | mainnet::B58_SPROUT_ADDRESS_PREFIX) => (prefix, NetworkType::Main),
-                    prefix @ (testnet::B58_PUBKEY_ADDRESS_PREFIX
+                    prefix @ (testnet::B58_PUBKEY_ADDRESS_PREFIX  //TODO: unreachable condition (likely because of same address prefixes)
                     | testnet::B58_SCRIPT_ADDRESS_PREFIX
                     | testnet::B58_SPROUT_ADDRESS_PREFIX) => (prefix, NetworkType::Test),
                     // We will not define new Base58Check address encodings.
