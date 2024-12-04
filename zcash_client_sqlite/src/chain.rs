@@ -1,408 +1,508 @@
 //! Functions for enforcing chain validity and handling chain reorgs.
+//!
+//! # Examples
+//!
+//! ```
+//! use rusqlite::Connection;
+//! use zcash_primitives::{
+//!     consensus::{BlockHeight, Network, Parameters}
+//! };
+//!
+//! use zcash_client_sqlite::{
+//!     chain::{rewind_to_height, validate_combined_chain},
+//!     error::ErrorKind,
+//!     scan::scan_cached_blocks,
+//! };
+//!
+//! let network = Network::TestNetwork;
+//! let db_cache = "/path/to/cache.db";
+//! let db_data = "/path/to/data.db";
+//!
+//! // 1) Download new CompactBlocks into db_cache.
+//!
+//! // 2) Run the chain validator on the received blocks.
+//! //
+//! // Given that we assume the server always gives us correct-at-the-time blocks, any
+//! // errors are in the blocks we have previously cached or scanned.
+//! if let Err(e) = validate_combined_chain(network, &db_cache, &db_data) {
+//!     match e.kind() {
+//!         ErrorKind::InvalidChain(upper_bound, _) => {
+//!             // a) Pick a height to rewind to.
+//!             //
+//!             // This might be informed by some external chain reorg information, or
+//!             // heuristics such as the platform, available bandwidth, size of recent
+//!             // CompactBlocks, etc.
+//!             let rewind_height = *upper_bound - 10;
+//!
+//!             // b) Rewind scanned block information.
+//!             rewind_to_height(network, &db_data, rewind_height);
+//!
+//!             // c) Delete cached blocks from rewind_height onwards.
+//!             //
+//!             // This does imply that assumed-valid blocks will be re-downloaded, but it
+//!             // is also possible that in the intervening time, a chain reorg has
+//!             // occurred that orphaned some of those blocks.
+//!
+//!             // d) If there is some separate thread or service downloading
+//!             // CompactBlocks, tell it to go back and download from rewind_height
+//!             // onwards.
+//!         }
+//!         _ => {
+//!             // Handle other errors.
+//!         }
+//!     }
+//! }
+//!
+//! // 3) Scan (any remaining) cached blocks.
+//! //
+//! // At this point, the cache and scanned data are locally consistent (though not
+//! // necessarily consistent with the latest chain tip - this would be discovered the
+//! // next time this codepath is executed after new blocks are received).
+//! scan_cached_blocks(&network, &db_cache, &db_data, None);
+//! ```
 
-use prost::Message;
-use rusqlite::params;
+use protobuf::parse_from_bytes;
+use rusqlite::{Connection, NO_PARAMS};
+use std::path::Path;
 
-use zcash_primitives::consensus::BlockHeight;
-
-use zcash_client_backend::{data_api::chain::error::Error, proto::compact_formats::CompactBlock};
-
-use crate::{error::SqliteClientError, BlockDb};
-
-#[cfg(feature = "unstable")]
-use {
-    crate::{BlockHash, FsBlockDb, FsBlockDbError},
-    rusqlite::Connection,
-    std::fs::File,
-    std::io::Read,
-    std::path::{Path, PathBuf},
+use zcash_primitives::{
+    consensus::{self, BlockHeight, NetworkUpgrade},
+    constants::{ChainNetwork}
 };
 
-pub mod init;
-pub mod migrations;
+use zcash_client_backend::proto::compact_formats::CompactBlock;
 
-/// Implements a traversal of `limit` blocks of the block cache database.
+use crate::error::{Error, ErrorKind};
+
+#[derive(Debug)]
+pub enum ChainInvalidCause {
+    PrevHashMismatch,
+    /// (expected_height, actual_height)
+    HeightMismatch(BlockHeight, BlockHeight),
+}
+
+struct CompactBlockRow {
+    height: BlockHeight,
+    data: Vec<u8>,
+}
+
+/// Checks that the scanned blocks in the data database, when combined with the recent
+/// `CompactBlock`s in the cache database, form a valid chain.
 ///
-/// Starting at `from_height`, the `with_row` callback is invoked with each block retrieved from
-/// the backing store. If the `limit` value provided is `None`, all blocks are traversed up to the
-/// maximum height.
-pub(crate) fn blockdb_with_blocks<F, DbErrT>(
-    block_source: &BlockDb,
-    from_height: Option<BlockHeight>,
-    limit: Option<usize>,
-    mut with_row: F,
-) -> Result<(), Error<DbErrT, SqliteClientError>>
-where
-    F: FnMut(CompactBlock) -> Result<(), Error<DbErrT, SqliteClientError>>,
-{
-    fn to_chain_error<D, E: Into<SqliteClientError>>(err: E) -> Error<D, SqliteClientError> {
-        Error::BlockSource(err.into())
-    }
+/// This function is built on the core assumption that the information provided in the
+/// cache database is more likely to be accurate than the previously-scanned information.
+/// This follows from the design (and trust) assumption that the `lightwalletd` server
+/// provides accurate block information as of the time it was requested.
+///
+/// Returns:
+/// - `Ok(())` if the combined chain is valid.
+/// - `Err(ErrorKind::InvalidChain(upper_bound, cause))` if the combined chain is invalid.
+///   `upper_bound` is the height of the highest invalid block (on the assumption that the
+///   highest block in the cache database is correct).
+/// - `Err(e)` if there was an error during validation unrelated to chain validity.
+///
+/// This function does not mutate either of the databases.
+pub fn validate_combined_chain<Params: consensus::Parameters, P: AsRef<Path>, Q: AsRef<Path>>(
+    parameters: Params,
+    db_cache: P,
+    db_data: Q,
+    chain_network: ChainNetwork
+) -> Result<(), Error> {
+    let cache = Connection::open(db_cache)?;
+    let data = Connection::open(db_data)?;
+    let sapling_activation_height = parameters
+        .activation_height(NetworkUpgrade::Sapling, chain_network)
+        .ok_or(Error(ErrorKind::SaplingNotActive))?;
 
-    // Fetch the CompactBlocks we need to scan
-    let mut stmt_blocks = block_source
-        .0
-        .prepare(
-            "SELECT height, data FROM compactblocks
-            WHERE height >= ?
-            ORDER BY height ASC LIMIT ?",
-        )
-        .map_err(to_chain_error)?;
+    // Recall where we synced up to previously.
+    // If we have never synced, use Sapling activation height to select all cached CompactBlocks.
+    let (have_scanned, last_scanned_height) =
+        data.query_row("SELECT MAX(height) FROM blocks", NO_PARAMS, |row| {
+            row.get(0)
+                .map(|h: u32| (true, h.into()))
+                .or(Ok((false, sapling_activation_height - 1)))
+        })?;
 
-    let mut rows = stmt_blocks
-        .query(params![
-            from_height.map_or(0u32, u32::from),
-            limit
-                .and_then(|l| u32::try_from(l).ok())
-                .unwrap_or(u32::MAX)
-        ])
-        .map_err(to_chain_error)?;
+    // Fetch the CompactBlocks we need to validate
+    let mut stmt_blocks = cache
+        .prepare("SELECT height, data FROM compactblocks WHERE height > ? ORDER BY height DESC")?;
+    let mut rows = stmt_blocks.query_map(&[u32::from(last_scanned_height)], |row| {
+        Ok(CompactBlockRow {
+            height: row.get(0).map(u32::into)?,
+            data: row.get(1)?,
+        })
+    })?;
 
-    // Only look for the `from_height` in the scanned blocks if it is set.
-    let mut from_height_found = from_height.is_none();
-    while let Some(row) = rows.next().map_err(to_chain_error)? {
-        let height = BlockHeight::from_u32(row.get(0).map_err(to_chain_error)?);
-        if !from_height_found {
-            // We will only perform this check on the first row.
-            let from_height = from_height.expect("can only reach here if set");
-            if from_height != height {
-                return Err(to_chain_error(SqliteClientError::CacheMiss(from_height)));
-            } else {
-                from_height_found = true;
+    // Take the highest cached block as accurate.
+    let (mut last_height, mut last_prev_hash) = {
+        let assumed_correct = match rows.next() {
+            Some(row) => row?,
+            None => {
+                // No cached blocks, and we've already validated the blocks we've scanned,
+                // so there's nothing to validate.
+                // TODO: Maybe we still want to check if there are cached blocks that are at heights we previously scanned? Check scanning flow again.
+                return Ok(());
             }
-        }
+        };
+        let block: CompactBlock = parse_from_bytes(&assumed_correct.data)?;
+        (block.height(), block.prev_hash())
+    };
 
-        let data: Vec<u8> = row.get(1).map_err(to_chain_error)?;
-        let block = CompactBlock::decode(&data[..]).map_err(to_chain_error)?;
-        if block.height() != height {
-            return Err(to_chain_error(SqliteClientError::CorruptedData(format!(
-                "Block height {} did not match row's height field value {}",
-                block.height(),
-                height
-            ))));
-        }
+    for row in rows {
+        let row = row?;
 
-        with_row(block)?;
+        // Scanned blocks MUST be height-sequential.
+        if row.height != (last_height - 1) {
+            return Err(Error(ErrorKind::InvalidChain(
+                last_height - 1,
+                ChainInvalidCause::HeightMismatch(last_height - 1, row.height),
+            )));
+        }
+        last_height = row.height;
+
+        let block: CompactBlock = parse_from_bytes(&row.data)?;
+
+        // Cached blocks MUST be hash-chained.
+        if block.hash() != last_prev_hash {
+            return Err(Error(ErrorKind::InvalidChain(
+                last_height,
+                ChainInvalidCause::PrevHashMismatch,
+            )));
+        }
+        last_prev_hash = block.prev_hash();
     }
 
-    if !from_height_found {
-        let from_height = from_height.expect("can only reach here if set");
-        return Err(to_chain_error(SqliteClientError::CacheMiss(from_height)));
+    if have_scanned {
+        // Cached blocks MUST hash-chain to the last scanned block.
+        let last_scanned_hash = data.query_row(
+            "SELECT hash FROM blocks WHERE height = ?",
+            &[u32::from(last_scanned_height)],
+            |row| row.get::<_, Vec<_>>(0),
+        )?;
+        if &last_scanned_hash[..] != &last_prev_hash.0[..] {
+            return Err(Error(ErrorKind::InvalidChain(
+                last_scanned_height,
+                ChainInvalidCause::PrevHashMismatch,
+            )));
+        }
     }
 
+    // All good!
     Ok(())
 }
 
-/// Data structure representing a row in the block metadata database.
-#[cfg(feature = "unstable")]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct BlockMeta {
-    pub height: BlockHeight,
-    pub block_hash: BlockHash,
-    pub block_time: u32,
-    pub sapling_outputs_count: u32,
-    pub orchard_actions_count: u32,
-}
+/// Rewinds the data database to the given height.
+///
+/// If the requested height is greater than or equal to the height of the last scanned
+/// block, this function does nothing.
+pub fn rewind_to_height<Params: consensus::Parameters, P: AsRef<Path>>(
+    parameters: Params,
+    db_data: P,
+    height: BlockHeight,
+    chain_network: ChainNetwork
+) -> Result<(), Error> {
+    let data = Connection::open(db_data)?;
+    let sapling_activation_height = parameters
+        .activation_height(NetworkUpgrade::Sapling, chain_network)
+        .ok_or(Error(ErrorKind::SaplingNotActive))?;
 
-#[cfg(feature = "unstable")]
-impl BlockMeta {
-    pub fn block_file_path<P: AsRef<Path>>(&self, blocks_dir: &P) -> PathBuf {
-        blocks_dir.as_ref().join(Path::new(&format!(
-            "{}-{}-compactblock",
-            self.height, self.block_hash
-        )))
+    // Recall where we synced up to previously.
+    // If we have never synced, use Sapling activation height.
+    let last_scanned_height =
+        data.query_row("SELECT MAX(height) FROM blocks", NO_PARAMS, |row| {
+            row.get(0)
+                .map(u32::into)
+                .or(Ok(sapling_activation_height - 1))
+        })?;
+
+    if height >= last_scanned_height {
+        // Nothing to do.
+        return Ok(());
     }
-}
 
-/// Inserts a batch of rows into the block metadata database.
-#[cfg(feature = "unstable")]
-pub(crate) fn blockmetadb_insert(
-    conn: &Connection,
-    block_meta: &[BlockMeta],
-) -> Result<(), rusqlite::Error> {
-    use rusqlite::named_params;
+    // Start an SQL transaction for rewinding.
+    data.execute("BEGIN IMMEDIATE", NO_PARAMS)?;
 
-    let mut stmt_insert = conn.prepare(
-        "INSERT INTO compactblocks_meta (
-            height,
-            blockhash,
-            time,
-            sapling_outputs_count,
-            orchard_actions_count
-        )
-        VALUES (
-            :height,
-            :blockhash,
-            :time,
-            :sapling_outputs_count,
-            :orchard_actions_count
-        )
-        ON CONFLICT (height) DO UPDATE
-        SET blockhash = :blockhash,
-            time = :time,
-            sapling_outputs_count = :sapling_outputs_count,
-            orchard_actions_count = :orchard_actions_count",
+    // Decrement witnesses.
+    data.execute(
+        "DELETE FROM sapling_witnesses WHERE block > ?",
+        &[u32::from(height)],
     )?;
 
-    conn.execute("BEGIN IMMEDIATE", [])?;
-    let result = block_meta
-        .iter()
-        .map(|m| {
-            stmt_insert.execute(named_params![
-                ":height": u32::from(m.height),
-                ":blockhash": &m.block_hash.0[..],
-                ":time": m.block_time,
-                ":sapling_outputs_count": m.sapling_outputs_count,
-                ":orchard_actions_count": m.orchard_actions_count,
-            ])
-        })
-        .collect::<Result<Vec<_>, _>>();
-    match result {
-        Ok(_) => {
-            conn.execute("COMMIT", [])?;
-            Ok(())
-        }
-        Err(error) => {
-            match conn.execute("ROLLBACK", []) {
-                Ok(_) => Err(error),
-                Err(e) =>
-                    // Panicking here is probably the right thing to do, because it
-                    // means the database is corrupt.
-                    panic!(
-                        "Rollback failed with error {} while attempting to recover from error {}; database is likely corrupt.",
-                        e,
-                        error
-                    )
-            }
-        }
-    }
-}
+    // Un-mine transactions.
+    data.execute(
+        "UPDATE transactions SET block = NULL, tx_index = NULL WHERE block > ?",
+        &[u32::from(height)],
+    )?;
 
-#[cfg(feature = "unstable")]
-pub(crate) fn blockmetadb_truncate_to_height(
-    conn: &Connection,
-    block_height: BlockHeight,
-) -> Result<(), rusqlite::Error> {
-    conn.prepare("DELETE FROM compactblocks_meta WHERE height > ?")?
-        .execute(params![u32::from(block_height)])?;
-    Ok(())
-}
+    // Now that they aren't depended on, delete scanned blocks.
+    data.execute("DELETE FROM blocks WHERE height > ?", &[u32::from(height)])?;
 
-#[cfg(feature = "unstable")]
-pub(crate) fn blockmetadb_get_max_cached_height(
-    conn: &Connection,
-) -> Result<Option<BlockHeight>, rusqlite::Error> {
-    conn.query_row("SELECT MAX(height) FROM compactblocks_meta", [], |row| {
-        // `SELECT MAX(_)` will always return a row, but it will return `null` if the
-        // table is empty, which has no integer type. We handle the optionality here.
-        let h: Option<u32> = row.get(0)?;
-        Ok(h.map(BlockHeight::from))
-    })
-}
-
-/// Returns the metadata for the block with the given height, if it exists in the database.
-#[cfg(feature = "unstable")]
-pub(crate) fn blockmetadb_find_block(
-    conn: &Connection,
-    height: BlockHeight,
-) -> Result<Option<BlockMeta>, rusqlite::Error> {
-    use rusqlite::OptionalExtension;
-
-    conn.query_row(
-        "SELECT blockhash, time, sapling_outputs_count, orchard_actions_count
-        FROM compactblocks_meta
-        WHERE height = ?",
-        [u32::from(height)],
-        |row| {
-            Ok(BlockMeta {
-                height,
-                block_hash: BlockHash::from_slice(&row.get::<_, Vec<_>>(0)?),
-                block_time: row.get(1)?,
-                sapling_outputs_count: row.get(2)?,
-                orchard_actions_count: row.get(3)?,
-            })
-        },
-    )
-    .optional()
-}
-
-/// Implements a traversal of `limit` blocks of the filesystem-backed
-/// block cache.
-///
-/// Starting at `from_height`, the `with_row` callback is invoked with each block retrieved from
-/// the backing store. If the `limit` value provided is `None`, all blocks are traversed up to the
-/// maximum height for which metadata is available.
-#[cfg(feature = "unstable")]
-pub(crate) fn fsblockdb_with_blocks<F, DbErrT>(
-    cache: &FsBlockDb,
-    from_height: Option<BlockHeight>,
-    limit: Option<usize>,
-    mut with_block: F,
-) -> Result<(), Error<DbErrT, FsBlockDbError>>
-where
-    F: FnMut(CompactBlock) -> Result<(), Error<DbErrT, FsBlockDbError>>,
-{
-    fn to_chain_error<D, E: Into<FsBlockDbError>>(err: E) -> Error<D, FsBlockDbError> {
-        Error::BlockSource(err.into())
-    }
-
-    // Fetch the CompactBlocks we need to scan
-    let mut stmt_blocks = cache
-        .conn
-        .prepare(
-            "SELECT height, blockhash, time, sapling_outputs_count, orchard_actions_count
-             FROM compactblocks_meta
-             WHERE height >= ?
-             ORDER BY height ASC LIMIT ?",
-        )
-        .map_err(to_chain_error)?;
-
-    let rows = stmt_blocks
-        .query_map(
-            params![
-                from_height.map_or(0u32, u32::from),
-                limit
-                    .and_then(|l| u32::try_from(l).ok())
-                    .unwrap_or(u32::MAX)
-            ],
-            |row| {
-                Ok(BlockMeta {
-                    height: BlockHeight::from_u32(row.get(0)?),
-                    block_hash: BlockHash::from_slice(&row.get::<_, Vec<_>>(1)?),
-                    block_time: row.get(2)?,
-                    sapling_outputs_count: row.get(3)?,
-                    orchard_actions_count: row.get(4)?,
-                })
-            },
-        )
-        .map_err(to_chain_error)?;
-
-    // Only look for the `from_height` in the scanned blocks if it is set.
-    let mut from_height_found = from_height.is_none();
-    for row_result in rows {
-        let cbr = row_result.map_err(to_chain_error)?;
-        if !from_height_found {
-            // We will only perform this check on the first row.
-            let from_height = from_height.expect("can only reach here if set");
-            if from_height != cbr.height {
-                return Err(to_chain_error(FsBlockDbError::CacheMiss(from_height)));
-            } else {
-                from_height_found = true;
-            }
-        }
-
-        let mut block_file =
-            File::open(cbr.block_file_path(&cache.blocks_dir)).map_err(to_chain_error)?;
-        let mut block_data = vec![];
-        block_file
-            .read_to_end(&mut block_data)
-            .map_err(to_chain_error)?;
-
-        let block = CompactBlock::decode(&block_data[..]).map_err(to_chain_error)?;
-
-        if block.height() != cbr.height {
-            return Err(to_chain_error(FsBlockDbError::CorruptedData(format!(
-                "Block height {} did not match row's height field value {}",
-                block.height(),
-                cbr.height
-            ))));
-        }
-
-        with_block(block)?;
-    }
-
-    if !from_height_found {
-        let from_height = from_height.expect("can only reach here if set");
-        return Err(to_chain_error(FsBlockDbError::CacheMiss(from_height)));
-    }
+    // Commit the SQL transaction, rewinding atomically.
+    data.execute("COMMIT", NO_PARAMS)?;
 
     Ok(())
 }
 
 #[cfg(test)]
-#[allow(deprecated)]
 mod tests {
-    use crate::{testing, wallet::sapling::tests::SaplingPoolTester};
+    use tempfile::NamedTempFile;
+    use zcash_primitives::{
+        block::BlockHash,
+        transaction::components::Amount,
+        constants::{ChainNetwork},
+        zip32::{ExtendedFullViewingKey, ExtendedSpendingKey},
+    };
 
-    #[cfg(feature = "orchard")]
-    use crate::wallet::orchard::tests::OrchardPoolTester;
+    use super::{rewind_to_height, validate_combined_chain};
+
+    use crate::{
+        error::ErrorKind,
+        init::{init_accounts_table, init_cache_database, init_data_database},
+        query::get_balance,
+        scan::scan_cached_blocks,
+        tests::{self, fake_compact_block, insert_into_cache, sapling_activation_height},
+    };
 
     #[test]
-    fn valid_chain_states_sapling() {
-        testing::pool::valid_chain_states::<SaplingPoolTester>()
+    fn valid_chain_states() {
+        let cache_file = NamedTempFile::new().unwrap();
+        let db_cache = cache_file.path();
+        init_cache_database(&db_cache).unwrap();
+
+        let data_file = NamedTempFile::new().unwrap();
+        let db_data = data_file.path();
+        init_data_database(&db_data).unwrap();
+
+        // Add an account to the wallet
+        let extsk = ExtendedSpendingKey::master(&[]);
+        let extfvk = ExtendedFullViewingKey::from(&extsk);
+        init_accounts_table(&db_data, &tests::network(), &[extfvk.clone()], ChainNetwork::ZEC).unwrap();
+
+        // Empty chain should be valid
+        validate_combined_chain(tests::network(), db_cache, db_data, ChainNetwork::ZEC).unwrap();
+
+        // Create a fake CompactBlock sending value to the address
+        let (cb, _) = fake_compact_block(
+            sapling_activation_height(ChainNetwork::ZEC),
+            BlockHash([0; 32]),
+            extfvk.clone(),
+            Amount::from_u64(5).unwrap(),
+        );
+        insert_into_cache(db_cache, &cb);
+
+        // Cache-only chain should be valid
+        validate_combined_chain(tests::network(), db_cache, db_data, ChainNetwork::ZEC).unwrap();
+
+        // Scan the cache
+        scan_cached_blocks(&tests::network(), db_cache, db_data, None, ChainNetwork::ZEC).unwrap();
+
+        // Data-only chain should be valid
+        validate_combined_chain(tests::network(), db_cache, db_data, ChainNetwork::ZEC).unwrap();
+
+        // Create a second fake CompactBlock sending more value to the address
+        let (cb2, _) = fake_compact_block(
+            sapling_activation_height(ChainNetwork::ZEC) + 1,
+            cb.hash(),
+            extfvk,
+            Amount::from_u64(7).unwrap(),
+        );
+        insert_into_cache(db_cache, &cb2);
+
+        // Data+cache chain should be valid
+        validate_combined_chain(tests::network(), db_cache, db_data, ChainNetwork::ZEC).unwrap();
+
+        // Scan the cache again
+        scan_cached_blocks(&tests::network(), db_cache, db_data, None, ChainNetwork::ZEC).unwrap();
+
+        // Data-only chain should be valid
+        validate_combined_chain(tests::network(), db_cache, db_data, ChainNetwork::ZEC).unwrap();
     }
 
     #[test]
-    #[cfg(feature = "orchard")]
-    fn valid_chain_states_orchard() {
-        testing::pool::valid_chain_states::<OrchardPoolTester>()
-    }
+    fn invalid_chain_cache_disconnected() {
+        let cache_file = NamedTempFile::new().unwrap();
+        let db_cache = cache_file.path();
+        init_cache_database(&db_cache).unwrap();
 
-    // FIXME: This requires test framework fixes to pass.
-    #[test]
-    #[cfg(feature = "orchard")]
-    fn invalid_chain_cache_disconnected_sapling() {
-        testing::pool::invalid_chain_cache_disconnected::<SaplingPoolTester>()
-    }
+        let data_file = NamedTempFile::new().unwrap();
+        let db_data = data_file.path();
+        init_data_database(&db_data).unwrap();
 
-    #[test]
-    #[cfg(feature = "orchard")]
-    fn invalid_chain_cache_disconnected_orchard() {
-        testing::pool::invalid_chain_cache_disconnected::<OrchardPoolTester>()
-    }
+        // Add an account to the wallet
+        let extsk = ExtendedSpendingKey::master(&[]);
+        let extfvk = ExtendedFullViewingKey::from(&extsk);
+        init_accounts_table(&db_data, &tests::network(), &[extfvk.clone()], ChainNetwork::ZEC).unwrap();
 
-    #[test]
-    fn data_db_truncation_sapling() {
-        testing::pool::data_db_truncation::<SaplingPoolTester>()
-    }
+        // Create some fake CompactBlocks
+        let (cb, _) = fake_compact_block(
+            sapling_activation_height(ChainNetwork::ZEC),
+            BlockHash([0; 32]),
+            extfvk.clone(),
+            Amount::from_u64(5).unwrap(),
+        );
+        let (cb2, _) = fake_compact_block(
+            sapling_activation_height(ChainNetwork::ZEC) + 1,
+            cb.hash(),
+            extfvk.clone(),
+            Amount::from_u64(7).unwrap(),
+        );
+        insert_into_cache(db_cache, &cb);
+        insert_into_cache(db_cache, &cb2);
 
-    #[test]
-    #[cfg(feature = "orchard")]
-    fn data_db_truncation_orchard() {
-        testing::pool::data_db_truncation::<OrchardPoolTester>()
-    }
+        // Scan the cache
+        scan_cached_blocks(&tests::network(), db_cache, db_data, None, ChainNetwork::ZEC).unwrap();
 
-    #[test]
-    fn scan_cached_blocks_allows_blocks_out_of_order_sapling() {
-        testing::pool::scan_cached_blocks_allows_blocks_out_of_order::<SaplingPoolTester>()
-    }
+        // Data-only chain should be valid
+        validate_combined_chain(tests::network(), db_cache, db_data, ChainNetwork::ZEC).unwrap();
 
-    #[test]
-    #[cfg(feature = "orchard")]
-    fn scan_cached_blocks_allows_blocks_out_of_order_orchard() {
-        testing::pool::scan_cached_blocks_allows_blocks_out_of_order::<OrchardPoolTester>()
-    }
+        // Create more fake CompactBlocks that don't connect to the scanned ones
+        let (cb3, _) = fake_compact_block(
+            sapling_activation_height(ChainNetwork::ZEC) + 2,
+            BlockHash([1; 32]),
+            extfvk.clone(),
+            Amount::from_u64(8).unwrap(),
+        );
+        let (cb4, _) = fake_compact_block(
+            sapling_activation_height(ChainNetwork::ZEC) + 3,
+            cb3.hash(),
+            extfvk.clone(),
+            Amount::from_u64(3).unwrap(),
+        );
+        insert_into_cache(db_cache, &cb3);
+        insert_into_cache(db_cache, &cb4);
 
-    #[test]
-    fn scan_cached_blocks_finds_received_notes_sapling() {
-        testing::pool::scan_cached_blocks_finds_received_notes::<SaplingPoolTester>()
-    }
-
-    #[test]
-    #[cfg(feature = "orchard")]
-    fn scan_cached_blocks_finds_received_notes_orchard() {
-        testing::pool::scan_cached_blocks_finds_received_notes::<OrchardPoolTester>()
-    }
-
-    #[test]
-    fn scan_cached_blocks_finds_change_notes_sapling() {
-        testing::pool::scan_cached_blocks_finds_change_notes::<SaplingPoolTester>()
-    }
-
-    #[test]
-    #[cfg(feature = "orchard")]
-    fn scan_cached_blocks_finds_change_notes_orchard() {
-        testing::pool::scan_cached_blocks_finds_change_notes::<OrchardPoolTester>()
-    }
-
-    #[test]
-    fn scan_cached_blocks_detects_spends_out_of_order_sapling() {
-        testing::pool::scan_cached_blocks_detects_spends_out_of_order::<SaplingPoolTester>()
+        // Data+cache chain should be invalid at the data/cache boundary
+        match validate_combined_chain(tests::network(), db_cache, db_data, ChainNetwork::ZEC) {
+            Err(e) => match e.kind() {
+                ErrorKind::InvalidChain(upper_bound, _) => {
+                    assert_eq!(*upper_bound, sapling_activation_height(ChainNetwork::ZEC) + 1)
+                }
+                _ => panic!(),
+            },
+            _ => panic!(),
+        }
     }
 
     #[test]
-    #[cfg(feature = "orchard")]
-    fn scan_cached_blocks_detects_spends_out_of_order_orchard() {
-        testing::pool::scan_cached_blocks_detects_spends_out_of_order::<OrchardPoolTester>()
+    fn invalid_chain_cache_reorg() {
+        let cache_file = NamedTempFile::new().unwrap();
+        let db_cache = cache_file.path();
+        init_cache_database(&db_cache).unwrap();
+
+        let data_file = NamedTempFile::new().unwrap();
+        let db_data = data_file.path();
+        init_data_database(&db_data).unwrap();
+
+        // Add an account to the wallet
+        let extsk = ExtendedSpendingKey::master(&[]);
+        let extfvk = ExtendedFullViewingKey::from(&extsk);
+        init_accounts_table(&db_data, &tests::network(), &[extfvk.clone()], ChainNetwork::ZEC).unwrap();
+
+        // Create some fake CompactBlocks
+        let (cb, _) = fake_compact_block(
+            sapling_activation_height(ChainNetwork::ZEC),
+            BlockHash([0; 32]),
+            extfvk.clone(),
+            Amount::from_u64(5).unwrap(),
+        );
+        let (cb2, _) = fake_compact_block(
+            sapling_activation_height(ChainNetwork::ZEC) + 1,
+            cb.hash(),
+            extfvk.clone(),
+            Amount::from_u64(7).unwrap(),
+        );
+        insert_into_cache(db_cache, &cb);
+        insert_into_cache(db_cache, &cb2);
+
+        // Scan the cache
+        scan_cached_blocks(&tests::network(), db_cache, db_data, None, ChainNetwork::ZEC).unwrap();
+
+        // Data-only chain should be valid
+        validate_combined_chain(tests::network(), db_cache, db_data, ChainNetwork::ZEC).unwrap();
+
+        // Create more fake CompactBlocks that contain a reorg
+        let (cb3, _) = fake_compact_block(
+            sapling_activation_height(ChainNetwork::ZEC) + 2,
+            cb2.hash(),
+            extfvk.clone(),
+            Amount::from_u64(8).unwrap(),
+        );
+        let (cb4, _) = fake_compact_block(
+            sapling_activation_height(ChainNetwork::ZEC) + 3,
+            BlockHash([1; 32]),
+            extfvk.clone(),
+            Amount::from_u64(3).unwrap(),
+        );
+        insert_into_cache(db_cache, &cb3);
+        insert_into_cache(db_cache, &cb4);
+
+        // Data+cache chain should be invalid inside the cache
+        match validate_combined_chain(tests::network(), db_cache, db_data, ChainNetwork::ZEC) {
+            Err(e) => match e.kind() {
+                ErrorKind::InvalidChain(upper_bound, _) => {
+                    assert_eq!(*upper_bound, sapling_activation_height(ChainNetwork::ZEC) + 2)
+                }
+                _ => panic!(),
+            },
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn data_db_rewinding() {
+        let cache_file = NamedTempFile::new().unwrap();
+        let db_cache = cache_file.path();
+        init_cache_database(&db_cache).unwrap();
+
+        let data_file = NamedTempFile::new().unwrap();
+        let db_data = data_file.path();
+        init_data_database(&db_data).unwrap();
+
+        // Add an account to the wallet
+        let extsk = ExtendedSpendingKey::master(&[]);
+        let extfvk = ExtendedFullViewingKey::from(&extsk);
+        init_accounts_table(&db_data, &tests::network(), &[extfvk.clone()], ChainNetwork::ZEC).unwrap();
+
+        // Account balance should be zero
+        assert_eq!(get_balance(db_data, 0).unwrap(), Amount::zero());
+
+        // Create fake CompactBlocks sending value to the address
+        let value = Amount::from_u64(5).unwrap();
+        let value2 = Amount::from_u64(7).unwrap();
+        let (cb, _) = fake_compact_block(
+            sapling_activation_height(ChainNetwork::ZEC),
+            BlockHash([0; 32]),
+            extfvk.clone(),
+            value,
+        );
+        let (cb2, _) =
+            fake_compact_block(sapling_activation_height(ChainNetwork::ZEC) + 1, cb.hash(), extfvk, value2);
+        insert_into_cache(db_cache, &cb);
+        insert_into_cache(db_cache, &cb2);
+
+        // Scan the cache
+        scan_cached_blocks(&tests::network(), db_cache, db_data, None, ChainNetwork::ZEC).unwrap();
+
+        // Account balance should reflect both received notes
+        assert_eq!(get_balance(db_data, 0).unwrap(), value + value2);
+
+        // "Rewind" to height of last scanned block
+        rewind_to_height(tests::network(), db_data, sapling_activation_height(ChainNetwork::ZEC) + 1, ChainNetwork::ZEC).unwrap();
+
+        // Account balance should be unaltered
+        assert_eq!(get_balance(db_data, 0).unwrap(), value + value2);
+
+        // Rewind so that one block is dropped
+        rewind_to_height(tests::network(), db_data, sapling_activation_height(ChainNetwork::ZEC), ChainNetwork::ZEC).unwrap();
+
+        // Account balance should only contain the first received note
+        assert_eq!(get_balance(db_data, 0).unwrap(), value);
+
+        // Scan the cache again
+        scan_cached_blocks(&tests::network(), db_cache, db_data, None, ChainNetwork::ZEC).unwrap();
+
+        // Account balance should again reflect both received notes
+        assert_eq!(get_balance(db_data, 0).unwrap(), value + value2);
     }
 }
