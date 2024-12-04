@@ -17,6 +17,56 @@ use crate::{load_parameters, parse_parameters, OutputParameters, SpendParameters
 #[cfg(feature = "local-prover")]
 use crate::{default_params_folder, SAPLING_OUTPUT_NAME, SAPLING_SPEND_NAME};
 
+//TxProver trait is deprecated, in favor of newer LocalTxProver (spendprover, outputprover)
+/*pub trait TxProver {
+    /// Type for persisting any necessary context across multiple Sapling proofs.
+    type SaplingProvingContext;
+
+    /// Instantiate a new Sapling proving context.
+    fn new_sapling_proving_context(&self) -> Self::SaplingProvingContext;
+
+    /// Create the value commitment, re-randomized key, and proof for a Sapling
+    /// [`SpendDescription`], while accumulating its value commitment randomness inside
+    /// the context for later use.
+    ///
+    /// [`SpendDescription`]: crate::transaction::components::SpendDescription
+    fn spend_proof(
+        &self,
+        ctx: &mut Self::SaplingProvingContext,
+        proof_generation_key: ProofGenerationKey,
+        diversifier: Diversifier,
+        rseed: Rseed,
+        ar: jubjub::Fr,
+        value: u64,
+        anchor: bls12_381::Scalar,
+        merkle_path: MerklePath<Node>,
+    ) -> Result<([u8; GROTH_PROOF_SIZE], jubjub::ExtendedPoint, PublicKey), ()>;
+
+    /// Create the value commitment and proof for a Sapling [`OutputDescription`],
+    /// while accumulating its value commitment randomness inside the context for later
+    /// use.
+    ///
+    /// [`OutputDescription`]: crate::transaction::components::OutputDescription
+    fn output_proof(
+        &self,
+        ctx: &mut Self::SaplingProvingContext,
+        esk: jubjub::Fr,
+        payment_address: PaymentAddress,
+        rcm: jubjub::Fr,
+        value: u64,
+    ) -> ([u8; GROTH_PROOF_SIZE], jubjub::ExtendedPoint);
+
+    /// Create the `bindingSig` for a Sapling transaction. All calls to
+    /// [`TxProver::spend_proof`] and [`TxProver::output_proof`] must be completed before
+    /// calling this function.
+    fn binding_sig(
+        &self,
+        ctx: &mut Self::SaplingProvingContext,
+        value_balance: Amount,
+        sighash: &[u8; 32],
+    ) -> Result<Signature, ()>;
+}*/
+
 /// An implementation of [`SpendProver`] and [`OutputProver`] using Sapling Spend and
 /// Output parameters from locally-accessible paths.
 pub struct LocalTxProver {
