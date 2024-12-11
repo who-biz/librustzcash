@@ -19,6 +19,11 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
+bitvec = "1.0.1"
+bls12_381 = "0.3.1"
+jubjub = "0.10.0"
+lazy_static = "1"
+
 equihash.workspace = true
 zcash_address.workspace = true
 zcash_encoding.workspace = true
@@ -45,7 +50,7 @@ subtle.workspace = true
 # - Shielded protocols
 ff.workspace = true
 group = { workspace = true, features = ["wnaf-memuse"] }
-jubjub.workspace = true
+#jubjub.workspace = true
 nonempty.workspace = true
 orchard.workspace = true
 sapling.workspace = true

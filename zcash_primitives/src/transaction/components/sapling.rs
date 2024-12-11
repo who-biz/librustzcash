@@ -9,6 +9,7 @@ use zcash_encoding::{Array, CompactSize, Vector};
 use zcash_note_encryption::{EphemeralKeyBytes, ENC_CIPHERTEXT_SIZE, OUT_CIPHERTEXT_SIZE};
 
 use crate::{
+    constants,
     sapling::{
         bundle::{
             Authorization, Authorized, Bundle, GrothProofBytes, OutputDescription,
@@ -24,10 +25,10 @@ use crate::{
 use super::{Amount, GROTH_PROOF_SIZE};
 
 /// Returns the enforcement policy for ZIP 212 at the given height.
-pub fn zip212_enforcement(params: &impl Parameters, height: BlockHeight) -> Zip212Enforcement {
-    if params.is_nu_active(NetworkUpgrade::Canopy, height) {
+pub fn zip212_enforcement(params: &impl Parameters, height: BlockHeight, chain: constants::ChainNetwork) -> Zip212Enforcement {
+    if params.is_nu_active(NetworkUpgrade::Canopy, height, chain) {
         let grace_period_end_height =
-            params.activation_height(NetworkUpgrade::Canopy).unwrap() + ZIP212_GRACE_PERIOD;
+            params.activation_height(NetworkUpgrade::Canopy, chain).unwrap() + ZIP212_GRACE_PERIOD;
 
         if height < grace_period_end_height {
             Zip212Enforcement::GracePeriod

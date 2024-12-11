@@ -23,6 +23,8 @@ pub use zcash_protocol::constants;
 pub mod legacy;
 pub use zcash_protocol::memo;
 pub mod merkle_tree;
+pub mod serialize;
+pub mod legacysapling;
 use sapling;
 pub mod transaction;
 pub use zip32;

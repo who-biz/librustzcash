@@ -9,6 +9,7 @@ use rand::{CryptoRng, RngCore};
 
 use crate::{
     consensus::{self, BlockHeight, BranchId, NetworkUpgrade},
+    constants,
     legacy::TransparentAddress,
     memo::MemoBytes,
     sapling::{
@@ -272,6 +273,7 @@ impl BuildResult {
 /// Generates a [`Transaction`] from its inputs and outputs.
 pub struct Builder<'a, P, U: sapling::builder::ProverProgress> {
     params: P,
+    chain_network: constants::ChainNetwork,
     build_config: BuildConfig,
     target_height: BlockHeight,
     expiry_height: BlockHeight,
@@ -300,6 +302,11 @@ impl<'a, P, U: sapling::builder::ProverProgress> Builder<'a, P, U> {
     /// Returns the target height of the transaction under construction.
     pub fn target_height(&self) -> BlockHeight {
         self.target_height
+    }
+
+    /// Returns the ChainNetwork value for transaction under construction
+    pub fn chain_network(&self) -> constants::ChainNetwork {
+        self.chain_network
     }
 
     /// Returns the set of transparent inputs currently committed to be consumed
@@ -340,8 +347,8 @@ impl<'a, P: consensus::Parameters> Builder<'a, P, ()> {
     ///
     /// The expiry height will be set to the given height plus the default transaction
     /// expiry delta (20 blocks).
-    pub fn new(params: P, target_height: BlockHeight, build_config: BuildConfig) -> Self {
-        let orchard_builder = if params.is_nu_active(NetworkUpgrade::Nu5, target_height) {
+    pub fn new(params: P, target_height: BlockHeight, build_config: BuildConfig, chain_network: constants::ChainNetwork) -> Self {
+        let orchard_builder = if params.is_nu_active(NetworkUpgrade::Nu5, target_height, chain_network) {
             build_config
                 .orchard_builder_config()
                 .map(|(bundle_type, anchor)| orchard::builder::Builder::new(bundle_type, anchor))
@@ -353,7 +360,7 @@ impl<'a, P: consensus::Parameters> Builder<'a, P, ()> {
             .sapling_builder_config()
             .map(|(bundle_type, anchor)| {
                 sapling::builder::Builder::new(
-                    zip212_enforcement(&params, target_height),
+                    zip212_enforcement(&params, target_height, chain_network),
                     bundle_type,
                     anchor,
                 )
@@ -361,6 +368,7 @@ impl<'a, P: consensus::Parameters> Builder<'a, P, ()> {
 
         Builder {
             params,
+            chain_network,
             build_config,
             target_height,
             expiry_height: target_height + DEFAULT_TX_EXPIRY_DELTA,
@@ -389,6 +397,7 @@ impl<'a, P: consensus::Parameters> Builder<'a, P, ()> {
     ) -> Builder<'a, P, Sender<Progress>> {
         Builder {
             params: self.params,
+            chain_network: self.chain_network,
             build_config: self.build_config,
             target_height: self.target_height,
             expiry_height: self.expiry_height,
@@ -665,7 +674,7 @@ impl<'a, P: consensus::Parameters, U: sapling::builder::ProverProgress> Builder<
         output_prover: &OP,
         fee: NonNegativeAmount,
     ) -> Result<BuildResult, Error<FE>> {
-        let consensus_branch_id = BranchId::for_height(&self.params, self.target_height);
+        let consensus_branch_id = BranchId::for_height(&self.params, self.target_height, self.chain_network);
 
         // determine transaction version
         let version = TxVersion::suggested_for_branch(consensus_branch_id);
@@ -739,7 +748,7 @@ impl<'a, P: consensus::Parameters, U: sapling::builder::ProverProgress> Builder<
 
         let unauthed_tx: TransactionData<Unauthorized> = TransactionData {
             version,
-            consensus_branch_id: BranchId::for_height(&self.params, self.target_height),
+            consensus_branch_id: BranchId::for_height(&self.params, self.target_height, self.chain_network),
             lock_time: 0,
             expiry_height: self.expiry_height,
             transparent_bundle,
