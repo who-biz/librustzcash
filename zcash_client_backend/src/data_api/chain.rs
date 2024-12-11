@@ -160,6 +160,8 @@ use zcash_primitives::{
     consensus::{self, BlockHeight},
 };
 
+use zcash_protocol::constants;
+
 use crate::{
     data_api::{NullifierQuery, WalletWrite},
     proto::compact_formats::CompactBlock,
@@ -501,10 +503,10 @@ impl ScanSummary {
 pub struct ChainState {
     block_height: BlockHeight,
     block_hash: BlockHash,
-    final_sapling_tree: Frontier<sapling::Node, { sapling::NOTE_COMMITMENT_TREE_DEPTH }>,
-    #[cfg(feature = "orchard")]
-    final_orchard_tree:
-        Frontier<orchard::tree::MerkleHashOrchard, { orchard::NOTE_COMMITMENT_TREE_DEPTH as u8 }>,
+//    final_sapling_tree: Frontier<sapling::Node, { sapling::NOTE_COMMITMENT_TREE_DEPTH }>,
+//    #[cfg(feature = "orchard")]
+//    final_orchard_tree:
+//        Frontier<orchard::tree::MerkleHashOrchard, { orchard::NOTE_COMMITMENT_TREE_DEPTH as u8 }>,
 }
 
 impl ChainState {
@@ -513,9 +515,9 @@ impl ChainState {
         Self {
             block_height,
             block_hash,
-            final_sapling_tree: Frontier::empty(),
-            #[cfg(feature = "orchard")]
-            final_orchard_tree: Frontier::empty(),
+//            final_sapling_tree: Frontier::empty(),
+//            #[cfg(feature = "orchard")]
+//            final_orchard_tree: Frontier::empty(),
         }
     }
 
@@ -523,18 +525,18 @@ impl ChainState {
     pub fn new(
         block_height: BlockHeight,
         block_hash: BlockHash,
-        final_sapling_tree: Frontier<sapling::Node, { sapling::NOTE_COMMITMENT_TREE_DEPTH }>,
+/*        final_sapling_tree: Frontier<sapling::Node, { sapling::NOTE_COMMITMENT_TREE_DEPTH }>,
         #[cfg(feature = "orchard")] final_orchard_tree: Frontier<
             orchard::tree::MerkleHashOrchard,
             { orchard::NOTE_COMMITMENT_TREE_DEPTH as u8 },
-        >,
+        >,*/
     ) -> Self {
         Self {
             block_height,
             block_hash,
-            final_sapling_tree,
-            #[cfg(feature = "orchard")]
-            final_orchard_tree,
+//            final_sapling_tree,
+//            #[cfg(feature = "orchard")]
+//            final_orchard_tree,
         }
     }
 
@@ -550,11 +552,11 @@ impl ChainState {
 
     /// Returns the frontier of the Sapling note commitment tree as of the end of the block at
     /// [`Self::block_height`].
-    pub fn final_sapling_tree(
+/*    pub fn final_sapling_tree(
         &self,
     ) -> &Frontier<sapling::Node, { sapling::NOTE_COMMITMENT_TREE_DEPTH }> {
         &self.final_sapling_tree
-    }
+    }*/
 
     /// Returns the frontier of the Orchard note commitment tree as of the end of the block at
     /// [`Self::block_height`].
@@ -586,6 +588,7 @@ pub fn scan_cached_blocks<ParamsT, DbT, BlockSourceT>(
     from_height: BlockHeight,
     from_state: &ChainState,
     limit: usize,
+    chain: constants::ChainNetwork,
 ) -> Result<ScanSummary, Error<DbT::Error, BlockSourceT::Error>>
 where
     ParamsT: consensus::Parameters + Send + 'static,
@@ -603,7 +606,7 @@ where
     let mut runners = BatchRunners::<_, (), ()>::for_keys(100, &scanning_keys);
 
     block_source.with_blocks::<_, DbT::Error>(Some(from_height), Some(limit), |block| {
-        runners.add_block(params, block).map_err(|e| e.into())
+        runners.add_block(params, block, chain).map_err(|e| e.into())
     })?;
     runners.flush();
 
@@ -635,6 +638,7 @@ where
             scan_summary.scanned_range.end = block.height() + 1;
             let scanned_block = scan_block_with_runners::<_, _, _, (), ()>(
                 params,
+                chain,
                 block,
                 &scanning_keys,
                 &nullifiers,

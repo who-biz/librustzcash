@@ -1366,12 +1366,12 @@ impl AccountBirthday {
 
     /// Returns the Sapling note commitment tree frontier as of the end of the block at
     /// [`Self::height`].
-    pub fn sapling_frontier(
+/*    pub fn sapling_frontier(
         &self,
     ) -> &Frontier<sapling::Node, { sapling::NOTE_COMMITMENT_TREE_DEPTH }> {
         self.prior_chain_state.final_sapling_tree()
     }
-
+*/
     /// Returns the Orchard note commitment tree frontier as of the end of the block at
     /// [`Self::height`].
     #[cfg(feature = "orchard")]

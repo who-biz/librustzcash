@@ -9,6 +9,7 @@ use zcash_primitives::{
     transaction::Transaction,
     zip32::Scope,
 };
+use zcash_protocol::constants;
 
 use crate::{data_api::DecryptedTransaction, keys::UnifiedFullViewingKey};
 
@@ -105,8 +106,9 @@ pub fn decrypt_transaction<'a, P: consensus::Parameters, AccountId: Copy>(
     height: BlockHeight,
     tx: &'a Transaction,
     ufvks: &HashMap<AccountId, UnifiedFullViewingKey>,
+    chain: constants::ChainNetwork,
 ) -> DecryptedTransaction<'a, AccountId> {
-    let zip212_enforcement = zip212_enforcement(params, height);
+    let zip212_enforcement = zip212_enforcement(params, height, chain);
     let sapling_bundle = tx.sapling_bundle();
     let sapling_outputs = sapling_bundle
         .iter()

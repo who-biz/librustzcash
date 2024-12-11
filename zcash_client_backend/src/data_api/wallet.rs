@@ -64,6 +64,7 @@ use zcash_primitives::transaction::{
 };
 use zcash_protocol::{
     consensus::{self, BlockHeight, NetworkUpgrade},
+    constants,
     memo::MemoBytes,
 };
 use zip32::Scope;
@@ -88,6 +89,7 @@ pub fn decrypt_and_store_transaction<ParamsT, DbT>(
     params: &ParamsT,
     data: &mut DbT,
     tx: &Transaction,
+    chain: constants::ChainNetwork,
 ) -> Result<(), DbT::Error>
 where
     ParamsT: consensus::Parameters,
@@ -101,10 +103,10 @@ where
     let height = data
         .get_tx_height(tx.txid())?
         .or(data.chain_height()?.map(|max_height| max_height + 1))
-        .or_else(|| params.activation_height(NetworkUpgrade::Sapling))
+        .or_else(|| params.activation_height(NetworkUpgrade::Sapling, chain))
         .expect("Sapling activation height must be known.");
 
-    data.store_decrypted_tx(decrypt_transaction(params, height, tx, &ufvks))?;
+    data.store_decrypted_tx(decrypt_transaction(params, height, tx, &ufvks, chain))?;
 
     Ok(())
 }
@@ -241,6 +243,7 @@ pub fn create_spend_to_address<DbT, ParamsT>(
     min_confirmations: NonZeroU32,
     change_memo: Option<MemoBytes>,
     fallback_change_pool: ShieldedProtocol,
+    chain: constants::ChainNetwork,
 ) -> Result<
     NonEmpty<TxId>,
     Error<
@@ -286,6 +289,7 @@ where
         usk,
         ovk_policy,
         &proposal,
+        chain,
     )
 }
 
@@ -353,6 +357,7 @@ pub fn spend<DbT, ParamsT, InputsT>(
     request: zip321::TransactionRequest,
     ovk_policy: OvkPolicy,
     min_confirmations: NonZeroU32,
+    chain: constants::ChainNetwork,
 ) -> Result<
     NonEmpty<TxId>,
     Error<
@@ -394,6 +399,7 @@ where
         usk,
         ovk_policy,
         &proposal,
+        chain,
     )
 }
 
@@ -591,6 +597,7 @@ pub fn create_proposed_transactions<DbT, ParamsT, InputsErrT, FeeRuleT, N>(
     usk: &UnifiedSpendingKey,
     ovk_policy: OvkPolicy,
     proposal: &Proposal<FeeRuleT, N>,
+    chain: constants::ChainNetwork,
 ) -> Result<
     NonEmpty<TxId>,
     Error<
@@ -618,6 +625,7 @@ where
             proposal.min_target_height(),
             &step_results,
             step,
+            chain,
         )?;
         step_results.push((step, step_result));
     }
@@ -644,6 +652,7 @@ fn create_proposed_transaction<DbT, ParamsT, InputsErrT, FeeRuleT, N>(
     min_target_height: BlockHeight,
     prior_step_results: &[(&proposal::Step<N>, BuildResult)],
     proposal_step: &proposal::Step<N>,
+    chain: constants::ChainNetwork,
 ) -> Result<
     BuildResult,
     Error<
@@ -786,6 +795,7 @@ where
             sapling_anchor,
             orchard_anchor,
         },
+        chain,
     );
 
     for (sapling_key, sapling_note, merkle_path) in sapling_inputs.into_iter() {
@@ -1148,7 +1158,7 @@ where
                                 try_sapling_note_decryption(
                                     &sapling_internal_ivk,
                                     &bundle.shielded_outputs()[output_index],
-                                    zip212_enforcement(params, min_target_height),
+                                    zip212_enforcement(params, min_target_height, chain),
                                 )
                                 .map(|(note, _, _)| Note::Sapling(note))
                             })
@@ -1243,6 +1253,7 @@ pub fn shield_transparent_funds<DbT, ParamsT, InputsT>(
     usk: &UnifiedSpendingKey,
     from_addrs: &[TransparentAddress],
     min_confirmations: u32,
+    chain: constants::ChainNetwork,
 ) -> Result<
     NonEmpty<TxId>,
     Error<
@@ -1274,5 +1285,6 @@ where
         usk,
         OvkPolicy::Sender,
         &proposal,
+        chain,
     )
 }

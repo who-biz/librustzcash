@@ -20,6 +20,7 @@ use zcash_primitives::{
     transaction::{components::sapling::zip212_enforcement, TxId},
 };
 use zip32::Scope;
+use zcash_protocol::constants;
 
 use crate::{
     data_api::{BlockMetadata, ScannedBlock, ScannedBundles},
@@ -484,6 +485,7 @@ impl fmt::Display for ScanError {
 /// [`WalletTx`]: crate::wallet::WalletTx
 pub fn scan_block<P, AccountId, IvkTag>(
     params: &P,
+    chain: constants::ChainNetwork,
     block: CompactBlock,
     scanning_keys: &ScanningKeys<AccountId, IvkTag>,
     nullifiers: &Nullifiers<AccountId>,
@@ -496,6 +498,7 @@ where
 {
     scan_block_with_runners::<_, _, _, (), ()>(
         params,
+        chain,
         block,
         scanning_keys,
         nullifiers,
@@ -589,14 +592,14 @@ where
     }
 
     #[tracing::instrument(skip_all, fields(height = block.height))]
-    pub(crate) fn add_block<P>(&mut self, params: &P, block: CompactBlock) -> Result<(), ScanError>
+    pub(crate) fn add_block<P>(&mut self, params: &P, block: CompactBlock, chain: constants::ChainNetwork) -> Result<(), ScanError>
     where
         P: consensus::Parameters + Send + 'static,
         IvkTag: Copy + Send + 'static,
     {
         let block_hash = block.hash();
         let block_height = block.height();
-        let zip212_enforcement = zip212_enforcement(params, block_height);
+        let zip212_enforcement = zip212_enforcement(params, block_height, chain);
 
         for tx in block.vtx.into_iter() {
             let txid = tx.txid();
@@ -648,6 +651,7 @@ where
 #[tracing::instrument(skip_all, fields(height = block.height))]
 pub(crate) fn scan_block_with_runners<P, AccountId, IvkTag, TS, TO>(
     params: &P,
+    chain: constants::ChainNetwork,
     block: CompactBlock,
     scanning_keys: &ScanningKeys<AccountId, IvkTag>,
     nullifiers: &Nullifiers<AccountId>,
@@ -709,7 +713,7 @@ where
 
     let cur_height = block.height();
     let cur_hash = block.hash();
-    let zip212_enforcement = zip212_enforcement(params, cur_height);
+    let zip212_enforcement = zip212_enforcement(params, cur_height, chain);
 
     let mut sapling_commitment_tree_size = prior_block_metadata
         .and_then(|m| m.sapling_tree_size())
@@ -719,7 +723,7 @@ where
                     || {
                         // If we're below Sapling activation, or Sapling activation is not set, the tree size is zero
                         params
-                            .activation_height(NetworkUpgrade::Sapling)
+                            .activation_height(NetworkUpgrade::Sapling, chain)
                             .map_or_else(
                                 || { /*warn!("bp0");*/ Ok(0) },
                                 |sapling_activation| {
@@ -787,7 +791,7 @@ where
                 block.chain_metadata.as_ref().map_or_else(
                     || {
                         // If we're below Orchard activation, or Orchard activation is not set, the tree size is zero
-                        params.activation_height(NetworkUpgrade::Nu5).map_or_else(
+                        params.activation_height(NetworkUpgrade::Nu5, chain).map_or_else(
                             || Ok(0),
                             |orchard_activation| {
                                 if cur_height < orchard_activation {
