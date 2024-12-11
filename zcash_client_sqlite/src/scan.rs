@@ -3,7 +3,6 @@
 use std::path::Path;
 
 use ff::PrimeField;
-use protobuf::parse_from_bytes;
 use rusqlite::{types::ToSql, Connection, OptionalExtension, NO_PARAMS};
 
 use zcash_client_backend::{
@@ -13,15 +12,19 @@ use zcash_client_backend::{
 use zcash_primitives::{
     consensus::{self, BlockHeight, NetworkUpgrade},
     constants::{ChainNetwork},
+    merkle_tree::{IncrementalWitness, CommitmentTree, MerklePath},
     transaction::Transaction,
 };
-use incrementalmerkletree::{
+/*use incrementalmerkletree::{
     frontier::CommitmentTree,
     witness::IncrementalWitness,
-};
+};*/
 use sapling::Node;
 
-use crate::error::{Error, ErrorKind};
+use std::fmt::Error;
+use std::io::ErrorKind;
+
+use prost::Message;
 
 struct CompactBlockRow {
     height: BlockHeight,
@@ -200,7 +203,7 @@ pub fn scan_cached_blocks<Params: consensus::Parameters, P: AsRef<Path>, Q: AsRe
         }
         last_height = row.height;
 
-        let block: CompactBlock = parse_from_bytes(&row.data)?;
+        let block: CompactBlock = Message::parse_from_bytes(&row.data)?;
         let block_hash = block.hash.clone();
         let block_time = block.time;
 
@@ -483,7 +486,7 @@ pub fn decrypt_and_store_transaction<D: AsRef<Path>, P: consensus::Parameters>(
         let value = output.note.value as i64;
 
         if output.outgoing {
-            let to_str = RecipientAddress::from(output.to).encode(params, chain_network);
+            let to_str = Address::from(output.to).encode(params, chain_network);
 
             // Try updating an existing sent note.
             if stmt_update_sent_note.execute(&[

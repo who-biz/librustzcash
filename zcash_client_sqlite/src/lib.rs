@@ -32,6 +32,8 @@ use zcash_primitives::{
     constants::{ChainNetwork}
 };
 
+use std::fmt::Error;
+
 use sapling;
 use sapling::zip32::ExtendedFullViewingKey;
 
@@ -59,7 +61,7 @@ fn address_from_extfvk<P: consensus::Parameters>(
 /// select anchors, based on the current synchronised block chain.
 fn get_target_and_anchor_heights(
     data: &Connection,
-) -> Result<(BlockHeight, BlockHeight), error::Error> {
+) -> Result<(BlockHeight, BlockHeight), dyn std::error::Error> {
     data.query_row_and_then(
         "SELECT MIN(height), MAX(height) FROM blocks",
         NO_PARAMS,
@@ -67,7 +69,7 @@ fn get_target_and_anchor_heights(
             // If there are no blocks, the query returns NULL.
             (Err(rusqlite::Error::InvalidColumnType(_, _, _)), _)
             | (_, Err(rusqlite::Error::InvalidColumnType(_, _, _))) => {
-                Err(error::Error(error::ErrorKind::ScanRequired))
+                Err(std::error::Error(error::ErrorKind::ScanRequired))
             }
             (Err(e), _) | (_, Err(e)) => Err(e.into()),
             (Ok(min_height), Ok(max_height)) => {

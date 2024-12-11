@@ -4,8 +4,10 @@ use rusqlite::Connection;
 use std::path::Path;
 use zcash_primitives::{memo::Memo, transaction::components::Amount};
 
+use std::fmt::Error;
+use std::io::ErrorKind;
+
 use crate::{
-    error::{Error, ErrorKind},
     get_target_and_anchor_heights,
 };
 

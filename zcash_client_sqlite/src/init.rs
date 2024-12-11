@@ -3,13 +3,15 @@
 use rusqlite::{types::ToSql, Connection, NO_PARAMS};
 use std::path::Path;
 use zcash_client_backend::encoding::encode_extended_full_viewing_key;
-
-use zcash_primitives::{block::BlockHash, consensus, constants::{ChainNetwork}};
+use zcash_primitives::{block::BlockHash, consensus, consensus::NetworkConstants, constants::{ChainNetwork}};
 use sapling::zip32::ExtendedFullViewingKey;
+
+use core::fmt::Error;
+use std::io::ErrorKind;
 
 use crate::{
     address_from_extfvk,
-    error::{Error, ErrorKind},
+    error,
 };
 
 /// Sets up the internal structure of the cache database.

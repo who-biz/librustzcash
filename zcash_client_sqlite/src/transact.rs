@@ -9,24 +9,28 @@ use zcash_primitives::{
     consensus,
     constants::{ChainNetwork},
     memo::Memo,
+    merkle_tree::{MerklePath},
     //prover::TxProver,
     transaction::{
         builder::Builder,
         components::{/*amount::DEFAULT_FEE,*/ Amount},
     },
 };
-use incrementalmerkletree::{witness::IncrementalWitness, MerklePath};
+//use incrementalmerkletree::{witness::IncrementalWitness, MerklePath};
 
 use zcash_proofs::prover::LocalTxProver;
 
+use legacy_sapling::Node;
+
 use ::sapling::{
-  Diversifier, Node, Note, Rseed,
+  Diversifier, Note, Rseed,
   keys::OutgoingViewingKey,
   zip32::{ExtendedFullViewingKey, ExtendedSpendingKey},
 };
 
+use std::io::{Error, ErrorKind};
+
 use crate::{
-    error::{Error, ErrorKind},
     get_target_and_anchor_heights,
 };
 

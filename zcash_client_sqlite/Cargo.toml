@@ -17,7 +17,6 @@ bs58 = { version = "0.3", features = ["check"] }
 ff = "0.8"
 group = "0.8"
 jubjub = "0.5.1"
-protobuf = "2.15"
 rand_core = "0.5.1"
 rusqlite = { version = "0.24", features = ["bundled", "time"] }
 time = "0.2"
@@ -36,7 +35,8 @@ zcash_protocol.workspace = true
 zcash_proofs.workspace = true
 zip32.workspace = true
 sapling.workspace = true
-incrementalmerkletree.workspace = true
+#incrementalmerkletree.workspace = true
+prost.workspace = true
 
 [dev-dependencies]
 rand_core = "0.5.1"
