@@ -6,6 +6,7 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::ops::{Add, Bound, RangeBounds, Sub};
 
+use crate::constants;
 use crate::constants::vrsc::{mainnet, regtest, testnet};
 
 /// A wrapper type representing blockchain heights.
@@ -140,7 +141,7 @@ pub trait NetworkConstants: Clone {
     /// The coin type for ZEC, as defined by [SLIP 44].
     ///
     /// [SLIP 44]: https://github.com/satoshilabs/slips/blob/master/slip-0044.md
-    fn coin_type(&self) -> u32;
+    fn coin_type(&self, chain: constants::ChainNetwork) -> u32;
 
     /// Returns the human-readable prefix for Bech32-encoded Sapling extended spending keys
     /// for the network to which this NetworkConstants value applies.
@@ -158,7 +159,7 @@ pub trait NetworkConstants: Clone {
     ///
     /// [`ExtendedFullViewingKey`]: zcash_primitives::zip32::ExtendedFullViewingKey
     /// [ZIP 32]: https://github.com/zcash/zips/blob/master/zip-0032.rst
-    fn hrp_sapling_extended_full_viewing_key(&self) -> &'static str;
+    fn hrp_sapling_extended_full_viewing_key(&self, chain: constants::ChainNetwork) -> &'static str;
 
     /// Returns the Bech32-encoded human-readable prefix for Sapling payment addresses
     /// for the network to which this NetworkConstants value applies.
@@ -233,7 +234,7 @@ impl NetworkConstants for NetworkType {
         }
     }
 
-    fn hrp_sapling_extended_full_viewing_key(&self) -> &'static str {
+    fn hrp_sapling_extended_full_viewing_key(&self, chain: constants::ChainNetwork) -> &'static str {
         match self {
             NetworkType::Main => mainnet::HRP_SAPLING_EXTENDED_FULL_VIEWING_KEY,
             NetworkType::Test => testnet::HRP_SAPLING_EXTENDED_FULL_VIEWING_KEY,
@@ -289,12 +290,12 @@ pub trait Parameters: Clone {
 
     /// Returns the activation height for a particular network upgrade,
     /// if an activation height has been set.
-    fn activation_height(&self, nu: NetworkUpgrade) -> Option<BlockHeight>;
+    fn activation_height(&self, nu: NetworkUpgrade, chain: constants::ChainNetwork) -> Option<BlockHeight>;
 
     /// Determines whether the specified network upgrade is active as of the
     /// provided block height on the network to which this Parameters value applies.
-    fn is_nu_active(&self, nu: NetworkUpgrade, height: BlockHeight) -> bool {
-        self.activation_height(nu).map_or(false, |h| h <= height)
+    fn is_nu_active(&self, nu: NetworkUpgrade, height: BlockHeight, chain: constants::ChainNetwork) -> bool {
+        self.activation_height(nu, chain).map_or(false, |h| h <= height)
     }
 }
 
@@ -307,8 +308,8 @@ impl<P: Parameters> NetworkConstants for P {
         self.network_type().hrp_sapling_extended_spending_key()
     }
 
-    fn hrp_sapling_extended_full_viewing_key(&self) -> &'static str {
-        self.network_type().hrp_sapling_extended_full_viewing_key()
+    fn hrp_sapling_extended_full_viewing_key(&self, chain: constants::ChainNetwork) -> &'static str {
+        self.network_type().hrp_sapling_extended_full_viewing_key(chain)
     }
 
     fn hrp_sapling_payment_address(&self) -> &'static str {
@@ -346,7 +347,7 @@ impl Parameters for MainNetwork {
         NetworkType::Main
     }
 
-    fn activation_height(&self, nu: NetworkUpgrade) -> Option<BlockHeight> {
+    fn activation_height(&self, nu: NetworkUpgrade, chain: constants::ChainNetwork) -> Option<BlockHeight> {
         match nu {
             NetworkUpgrade::Overwinter => Some(BlockHeight(227_520)),
             NetworkUpgrade::Sapling => Some(BlockHeight(227_520)),
@@ -376,7 +377,7 @@ impl Parameters for TestNetwork {
         NetworkType::Test
     }
 
-    fn activation_height(&self, nu: NetworkUpgrade) -> Option<BlockHeight> {
+    fn activation_height(&self, nu: NetworkUpgrade, chain: constants::ChainNetwork) -> Option<BlockHeight> {
         match nu {
             NetworkUpgrade::Overwinter => Some(BlockHeight(207_500)),
             NetworkUpgrade::Sapling => Some(BlockHeight(280_000)),
@@ -411,10 +412,10 @@ impl Parameters for Network {
         }
     }
 
-    fn activation_height(&self, nu: NetworkUpgrade) -> Option<BlockHeight> {
+    fn activation_height(&self, nu: NetworkUpgrade, chain: constants::ChainNetwork) -> Option<BlockHeight> {
         match self {
-            Network::MainNetwork => MAIN_NETWORK.activation_height(nu),
-            Network::TestNetwork => TEST_NETWORK.activation_height(nu),
+            Network::MainNetwork => MAIN_NETWORK.activation_height(nu, chain),
+            Network::TestNetwork => TEST_NETWORK.activation_height(nu, chain),
         }
     }
 }
@@ -603,9 +604,9 @@ impl BranchId {
     /// the given height.
     ///
     /// This is the branch ID that should be used when creating transactions.
-    pub fn for_height<P: Parameters>(parameters: &P, height: BlockHeight) -> Self {
+    pub fn for_height<P: Parameters>(parameters: &P, height: BlockHeight, chain: constants::ChainNetwork) -> Self {
         for nu in UPGRADES_IN_ORDER.iter().rev() {
-            if parameters.is_nu_active(*nu, height) {
+            if parameters.is_nu_active(*nu, height, chain) {
                 return nu.branch_id();
             }
         }
@@ -617,8 +618,8 @@ impl BranchId {
     /// Returns the range of heights for the consensus epoch associated with this branch id.
     ///
     /// The resulting tuple implements the [`RangeBounds<BlockHeight>`] trait.
-    pub fn height_range<P: Parameters>(&self, params: &P) -> Option<impl RangeBounds<BlockHeight>> {
-        self.height_bounds(params).map(|(lower, upper)| {
+    pub fn height_range<P: Parameters>(&self, params: &P, chain: constants::ChainNetwork) -> Option<impl RangeBounds<BlockHeight>> {
+        self.height_bounds(params, chain).map(|(lower, upper)| {
             (
                 Bound::Included(lower),
                 upper.map_or(Bound::Unbounded, Bound::Excluded),
@@ -637,29 +638,30 @@ impl BranchId {
     pub fn height_bounds<P: Parameters>(
         &self,
         params: &P,
+        chain: constants::ChainNetwork,
     ) -> Option<(BlockHeight, Option<BlockHeight>)> {
         match self {
             BranchId::Sprout => params
-                .activation_height(NetworkUpgrade::Overwinter)
+                .activation_height(NetworkUpgrade::Overwinter, chain)
                 .map(|upper| (BlockHeight(0), Some(upper))),
             BranchId::Overwinter => params
-                .activation_height(NetworkUpgrade::Overwinter)
-                .map(|lower| (lower, params.activation_height(NetworkUpgrade::Sapling))),
+                .activation_height(NetworkUpgrade::Overwinter, chain)
+                .map(|lower| (lower, params.activation_height(NetworkUpgrade::Sapling, chain))),
             BranchId::Sapling => params
-                .activation_height(NetworkUpgrade::Sapling)
-                .map(|lower| (lower, params.activation_height(NetworkUpgrade::Blossom))),
+                .activation_height(NetworkUpgrade::Sapling, chain)
+                .map(|lower| (lower, params.activation_height(NetworkUpgrade::Blossom, chain))),
             BranchId::Blossom => params
-                .activation_height(NetworkUpgrade::Blossom)
-                .map(|lower| (lower, params.activation_height(NetworkUpgrade::Heartwood))),
+                .activation_height(NetworkUpgrade::Blossom, chain)
+                .map(|lower| (lower, params.activation_height(NetworkUpgrade::Heartwood, chain))),
             BranchId::Heartwood => params
-                .activation_height(NetworkUpgrade::Heartwood)
-                .map(|lower| (lower, params.activation_height(NetworkUpgrade::Canopy))),
+                .activation_height(NetworkUpgrade::Heartwood, chain)
+                .map(|lower| (lower, params.activation_height(NetworkUpgrade::Canopy, chain))),
             BranchId::Canopy => params
-                .activation_height(NetworkUpgrade::Canopy)
-                .map(|lower| (lower, params.activation_height(NetworkUpgrade::Nu5))),
-            BranchId::Nu5 => params.activation_height(NetworkUpgrade::Nu5).map(|lower| {
+                .activation_height(NetworkUpgrade::Canopy, chain)
+                .map(|lower| (lower, params.activation_height(NetworkUpgrade::Nu5, chain))),
+            BranchId::Nu5 => params.activation_height(NetworkUpgrade::Nu5, chain).map(|lower| {
                 #[cfg(zcash_unstable = "zfuture")]
-                let upper = params.activation_height(NetworkUpgrade::ZFuture);
+                let upper = params.activation_height(NetworkUpgrade::ZFuture, chain);
                 #[cfg(not(zcash_unstable = "zfuture"))]
                 let upper = None;
                 (lower, upper)
@@ -668,7 +670,7 @@ impl BranchId {
             BranchId::Nu6 => None,
             #[cfg(zcash_unstable = "zfuture")]
             BranchId::ZFuture => params
-                .activation_height(NetworkUpgrade::ZFuture)
+                .activation_height(NetworkUpgrade::ZFuture, chain)
                 .map(|lower| (lower, None)),
         }
     }
@@ -680,6 +682,8 @@ impl BranchId {
 
 #[cfg(any(test, feature = "test-dependencies"))]
 pub mod testing {
+    use crate::constants;
+
     use proptest::sample::select;
     use proptest::strategy::{Just, Strategy};
 
@@ -704,9 +708,10 @@ pub mod testing {
     pub fn arb_height<P: Parameters>(
         branch_id: BranchId,
         params: &P,
+        chain: constants::ChainNetwork,
     ) -> impl Strategy<Value = Option<BlockHeight>> {
         branch_id
-            .height_bounds(params)
+            .height_bounds(params, chain)
             .map_or(Strategy::boxed(Just(None)), |(lower, upper)| {
                 Strategy::boxed(
                     (lower.0..upper.map_or(std::u32::MAX, |u| u.0))

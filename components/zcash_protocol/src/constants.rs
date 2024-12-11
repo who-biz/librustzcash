@@ -4,7 +4,7 @@ pub mod zec;
 pub mod vrsc;
 
 /// Different networks used for differentiating between sapling activation heights, constants, etc. and their IDs
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum ChainNetwork {
     VRSC,
     ZEC
