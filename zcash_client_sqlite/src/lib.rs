@@ -816,6 +816,9 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
 
             // We will have a start position and a last scanned height in all cases where
             // `blocks` is non-empty.
+
+            //Note: newly added by Biz
+            #[cfg(feature = "orchard")]
             if let Some((start_positions, last_scanned_height)) =
                 start_positions.zip(last_scanned_height)
             {

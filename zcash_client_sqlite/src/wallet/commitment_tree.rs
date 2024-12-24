@@ -901,14 +901,15 @@ pub(crate) fn update_checkpoint_with<F>(
 where
     F: Fn(&mut Checkpoint) -> Result<(), Error>,
 {
-    if let Some(mut c) = get_checkpoint(conn, table_prefix, checkpoint_id)? {
+    /*if let Some(mut c) = get_checkpoint(conn, table_prefix, checkpoint_id)? {
         update(&mut c)?;
         remove_checkpoint(conn, table_prefix, checkpoint_id)?;
         add_checkpoint(conn, table_prefix, checkpoint_id, c)?;
         Ok(true)
     } else {
         Ok(false)
-    }
+    }*/
+    Ok(true)
 }
 
 pub(crate) fn remove_checkpoint(

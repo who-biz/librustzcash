@@ -111,6 +111,8 @@ use crate::{
     SAPLING_TABLES_PREFIX,
 };
 
+use tracing::warn;
+
 use self::scanning::{parse_priority_code, priority_code, replace_queue_entries};
 
 #[cfg(feature = "orchard")]
@@ -1759,12 +1761,14 @@ fn parse_block_metadata<P: consensus::Parameters>(
     _params: &P,
     row: (BlockHeight, Vec<u8>, Option<u32>, Vec<u8>, Option<u32>),
 ) -> Result<BlockMetadata, SqliteClientError> {
+    warn!(">>> bp1");
     let (block_height, hash_data, sapling_tree_size_opt, sapling_tree, _orchard_tree_size_opt) =
         row;
     let sapling_tree_size = sapling_tree_size_opt.map_or_else(|| {
         if sapling_tree == BLOCK_SAPLING_FRONTIER_ABSENT {
             Err(SqliteClientError::CorruptedData("One of either the Sapling tree size or the legacy Sapling commitment tree must be present.".to_owned()))
         } else {
+            warn!(">>> bp2");
             // parse the legacy commitment tree data
             read_commitment_tree::<
                 ::sapling::Node,
@@ -1783,9 +1787,11 @@ fn parse_block_metadata<P: consensus::Parameters>(
         ))
     })?;
 
+    warn!(">>> bp3");
     Ok(BlockMetadata::from_parts(
         block_height,
         block_hash,
+//        None,
         Some(sapling_tree_size),
         #[cfg(feature = "orchard")]
         if _params
