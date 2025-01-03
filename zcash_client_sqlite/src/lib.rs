@@ -816,14 +816,14 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
 
             // We will have a start position and a last scanned height in all cases where
             // `blocks` is non-empty.
-
-            //Note: newly added by Biz
-            //#[cfg(feature = "orchard")]
             if let Some((start_positions, last_scanned_height)) =
                 start_positions.zip(last_scanned_height)
             {
                 warn!(">>> bp1 sapling tree");
                 // Create subtrees from the note commitments in parallel.
+
+                // TODO: Biz: figure out if we can remove some of this too, with 'linearscanning' feature
+
                 const CHUNK_SIZE: usize = 1024;
                 let sapling_subtrees = sapling_commitments
                     .par_chunks_mut(CHUNK_SIZE)
@@ -945,8 +945,8 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
                     ),
                 );
 
-                //TODO: newly added by Biz, need to add a pre-compile feature to disable relevant subtrees
-                #[cfg(feature = "orchard")]
+                // Newly added by Biz
+                #[cfg(not(feature = "linearscanning"))]
                 // Update the Sapling note commitment tree with all newly read note commitments
                 {
                     warn!(">>> bp3 sapling tree");

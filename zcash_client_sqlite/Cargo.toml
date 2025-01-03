@@ -137,5 +137,7 @@ unstable = ["zcash_client_backend/unstable"]
 ## A feature used to isolate tests that are expensive to run. Test-only.
 expensive-tests = []
 
+## A feature used to disable shardtree DB population, for linear scanning
+linearscanning = []
 [lib]
 bench = false
