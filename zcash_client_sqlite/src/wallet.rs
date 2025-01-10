@@ -1135,6 +1135,8 @@ pub(crate) fn get_wallet_summary<P: consensus::Parameters>(
         chain_tip_height,
     )?;
 
+    warn!("fully_scanned_height({:?}, chain_tip_height({:?}), min_confirmations({:?})", fully_scanned_height, chain_tip_height, min_confirmations);
+
     #[cfg(feature = "orchard")]
     let orchard_scan_progress = progress.orchard_scan_progress(
         tx,
@@ -1205,6 +1207,9 @@ pub(crate) fn get_wallet_summary<P: consensus::Parameters>(
         }
 
         let any_spendable = is_any_spendable(tx, summary_height, table_prefix)?;
+
+        warn!(">>> summary_height({:?}), any_spendable({:?}", summary_height, any_spendable);
+
         let mut stmt_select_notes = tx.prepare_cached(&format!(
             "SELECT n.account_id, n.value, n.is_change, scan_state.max_priority, t.block
              FROM {table_prefix}_received_notes n
@@ -1259,6 +1264,8 @@ pub(crate) fn get_wallet_summary<P: consensus::Parameters>(
                 },
             )?;
 
+            warn!(">>> max_priority_raw({:?}), max_priority({:?})", max_priority_raw, max_priority);
+
             let received_height = row.get::<_, Option<u32>>(4)?.map(BlockHeight::from);
 
             let is_spendable = any_spendable
@@ -1278,6 +1285,8 @@ pub(crate) fn get_wallet_summary<P: consensus::Parameters>(
                     (zero, zero, value)
                 }
             };
+
+            warn!("spendable({:?}), change_pending_conf({:?}), value_pending_spendability({:?})", spendable_value, change_pending_confirmation, value_pending_spendability); 
 
             if let Some(balances) = account_balances.get_mut(&account) {
                 with_pool_balance(
