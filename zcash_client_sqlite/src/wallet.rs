@@ -1248,12 +1248,30 @@ pub(crate) fn get_wallet_summary<P: consensus::Parameters>(
 
             let is_change = row.get::<_, bool>(2)?;
 
-            // If `max_priority` is null, this means that the note is not positioned; the note
-            // will not be spendable, so we assign the scan priority to `ChainTip` as a priority
-            // that is greater than `Scanned`
             let max_priority_raw = row.get::<_, Option<i64>>(3)?;
+
+            // If `max_priority` is null, this means that the note is not positioned in shard tree;
+            // the note will not be spendable, so we assign the scan priority to `ChainTip` as a priority
+            // that is greater than `Scanned`
+            #[cfg(not(feature = "linearscanning"))]
             let max_priority = max_priority_raw.map_or_else(
                 || Ok(ScanPriority::ChainTip),
+                |raw| {
+                    parse_priority_code(raw).ok_or_else(|| {
+                        SqliteClientError::CorruptedData(format!(
+                            "Priority code {} not recognized.",
+                            raw
+                        ))
+                    })
+                },
+            )?;
+
+            // When linear scanning is active, and we are not populating shardtree with legacy ZEC codebases
+            // we need to set priority to Scanned or Ignored such that the final condition in 'is_spendable'
+            // is met, and balance is reflected as Available, rather than Pending
+            #[cfg(feature = "linearscanning")]
+            let max_priority = max_priority_raw.map_or_else(
+                || Ok(ScanPriority::Scanned),
                 |raw| {
                     parse_priority_code(raw).ok_or_else(|| {
                         SqliteClientError::CorruptedData(format!(
