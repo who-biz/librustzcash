@@ -4,6 +4,7 @@ use std::{
     fmt::{self, Display},
 };
 
+#[cfg(feature = "transparent-inputs")]
 use secp256k1::{Secp256k1};
 
 use tracing::{warn};
@@ -229,11 +230,14 @@ impl UnifiedSpendingKey {
            panic!("transparentkey MUST be exactly 33 bytes, key {:?}\n seed: {:?}", transparentkey, seed);
         }
 
-        let transparent_key;
-        if transparentkey.len() > 0 {
-            transparent_key = legacy::AccountPrivKey::from_transparent_key(_params, transparentkey, _account)?;
-        } else {
-            transparent_key = legacy::AccountPrivKey::from_seed(_params, seed, _account)?;
+        #[cfg(feature = "transparent-inputs")]
+        {
+            let transparent_key;
+            if transparentkey.len() > 0 {
+                transparent_key = legacy::AccountPrivKey::from_transparent_key(_params, transparentkey, _account)?;
+            } else {
+                transparent_key = legacy::AccountPrivKey::from_seed(_params, seed, _account)?;
+            }
         }
 
         UnifiedSpendingKey::from_checked_parts(
