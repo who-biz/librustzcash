@@ -58,6 +58,7 @@ use crate::{
     zip321::{self, Payment},
     PoolType, ShieldedProtocol,
 };
+use zcash_primitives::zip32::AccountId;
 use zcash_primitives::transaction::{
     builder::{BuildConfig, BuildResult, Builder},
     components::{amount::NonNegativeAmount, sapling::zip212_enforcement},
@@ -448,6 +449,11 @@ where
     let account_ids = wallet_db.get_account_ids().unwrap();
     warn!("account_ids() = {:?}", account_ids);
     let account = account_ids.first().unwrap();
+    let account_zero = wallet_db.convert_account_id_type(AccountId::ZERO)
+    .map_err(|e| Error::from(InputSelectorError::DataSource(e)))?.unwrap();
+
+    warn!("account_zero (converted) = {:?}", account_zero);
+    
 
     input_selector
         .propose_transaction(
@@ -456,7 +462,7 @@ where
             target_height,
             anchor_height,
 //            spend_from_account,
-            *account,
+            account_zero,
             request,
         )
         .map_err(Error::from)

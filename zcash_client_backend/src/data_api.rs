@@ -713,6 +713,11 @@ pub trait WalletRead {
     /// Returns a vector with the IDs of all accounts known to this wallet.
     fn get_account_ids(&self) -> Result<Vec<Self::AccountId>, Self::Error>;
 
+    fn convert_account_id_type(
+        &self,
+        account_id: zip32::AccountId,
+    ) -> Result<Option<Self::AccountId>, Self::Error>;
+
     /// Returns the account corresponding to the given ID, if any.
     fn get_account(
         &self,
