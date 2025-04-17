@@ -1,5 +1,7 @@
 //! Types related to the process of selecting inputs to be spent given a transaction request.
 
+use tracing::warn;
+
 use core::marker::PhantomData;
 use std::{
     collections::BTreeMap,
@@ -338,6 +340,7 @@ where
         ParamsT: consensus::Parameters,
         Self::InputSource: InputSource,
     {
+        warn!("input_selector.propose_transaction called!");
         let mut transparent_outputs = vec![];
         let mut sapling_outputs = vec![];
         #[cfg(feature = "orchard")]

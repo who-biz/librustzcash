@@ -41,6 +41,8 @@ use sapling::{
 };
 use std::num::NonZeroU32;
 
+use tracing::warn;
+
 use super::InputSource;
 use crate::{
     address::Address,
@@ -259,6 +261,8 @@ where
     >,
     DbT: WalletCommitmentTrees,
 {
+
+    warn!("create_spend_to_address called!");
     let account = wallet_db
         .get_account_for_ufvk(&usk.to_unified_full_viewing_key())
         .map_err(Error::DataSource)?
@@ -424,6 +428,8 @@ where
     ParamsT: consensus::Parameters + Clone,
     InputsT: InputSelector<InputSource = DbT>,
 {
+    warn!("propose_transfer called!");
+
     let (target_height, anchor_height) = wallet_db
         .get_target_and_anchor_heights(min_confirmations)
         .map_err(|e| Error::from(InputSelectorError::DataSource(e)))?
@@ -497,6 +503,8 @@ where
     >,
     DbT::NoteRef: Copy + Eq + Ord,
 {
+    warn!("propose_standard_transfer_to_address called!");
+
     let request = zip321::TransactionRequest::new(vec![Payment {
         recipient_address: to.clone(),
         amount,
