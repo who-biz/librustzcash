@@ -532,6 +532,7 @@ impl<NoteRef> NoteRetention<NoteRef> for SimpleNoteRetention {
 }
 
 /// Spendable shielded outputs controlled by the wallet.
+#[derive(Debug)]
 pub struct SpendableNotes<NoteRef> {
     sapling: Vec<ReceivedNote<NoteRef, sapling::Note>>,
     #[cfg(feature = "orchard")]
@@ -707,7 +708,7 @@ pub trait WalletRead {
     type AccountId: Copy + Debug + Eq + Hash;
 
     /// The concrete account type used by this wallet backend.
-    type Account: Account<Self::AccountId>;
+    type Account: Account<Self::AccountId> + Debug;
 
     /// Returns a vector with the IDs of all accounts known to this wallet.
     fn get_account_ids(&self) -> Result<Vec<Self::AccountId>, Self::Error>;

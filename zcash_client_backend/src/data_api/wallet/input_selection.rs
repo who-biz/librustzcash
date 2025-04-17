@@ -31,6 +31,8 @@ use crate::{
     PoolType, ShieldedProtocol,
 };
 
+//use zip32::AccountId;
+
 #[cfg(feature = "transparent-inputs")]
 use {
     std::collections::BTreeSet, std::convert::Infallible,
@@ -504,7 +506,23 @@ where
 
             warn!(">>> bp4, account = {:?}, anchor_height {:?}, exclude = {:?}", account, anchor_height, &exclude);
 
+            /*let account_zero: InputSource<AccountId> = AccountId::ZERO;
+
+            warn!("selecting inputs from AccountId(0)....");
             shielded_inputs = wallet_db
+                .select_spendable_notes(
+                    account_zero,
+                    amount_required,
+                    selectable_pools,
+                    anchor_height,
+                    &exclude,
+                )
+                .map_err(InputSelectorError::DataSource)?;
+
+            warn!("Shielded inputs from AccountId(0) = {:?}", shielded_inputs);
+            */
+            warn!("selecting inputs from AccountId(1)....");
+            let shielded_inputs = wallet_db
                 .select_spendable_notes(
                     account,
                     amount_required,
@@ -513,6 +531,8 @@ where
                     &exclude,
                 )
                 .map_err(InputSelectorError::DataSource)?;
+
+            warn!("Shielded inputs from AccountId(1) = {:?}", shielded_inputs);
 
             let new_available = shielded_inputs.total_value()?;
             warn!("input_selector.propose_transaction >>>> bp5");

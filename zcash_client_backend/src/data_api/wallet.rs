@@ -376,10 +376,20 @@ where
     ParamsT: consensus::Parameters + Clone,
     InputsT: InputSelector<InputSource = DbT>,
 {
+    warn!(">>> spend() called!");
+
     let account = wallet_db
         .get_account_for_ufvk(&usk.to_unified_full_viewing_key())
         .map_err(Error::DataSource)?
         .ok_or(Error::KeyNotRecognized)?;
+
+    warn!("account in spend(): {:?}", account);
+    let account_ids = wallet_db.get_account_ids()
+        .map_err(Error::DataSource)?;
+//        .ok_or(Error::KeyNotRecognized)?;
+//.unwrap();
+    warn!("account_ids() = {:?}", account_ids);
+
 
     let proposal = propose_transfer(
         wallet_db,
@@ -423,7 +433,7 @@ pub fn propose_transfer<DbT, ParamsT, InputsT, CommitmentTreeErrT>(
     >,
 >
 where
-    DbT: WalletRead + InputSource<Error = <DbT as WalletRead>::Error>,
+    DbT: WalletRead + InputSource<Error = <DbT as WalletRead>::Error, AccountId = <DbT as WalletRead>::AccountId>,
     <DbT as InputSource>::NoteRef: Copy + Eq + Ord,
     ParamsT: consensus::Parameters + Clone,
     InputsT: InputSelector<InputSource = DbT>,
@@ -435,13 +445,18 @@ where
         .map_err(|e| Error::from(InputSelectorError::DataSource(e)))?
         .ok_or_else(|| Error::from(InputSelectorError::SyncRequired))?;
 
+    let account_ids = wallet_db.get_account_ids().unwrap();
+    warn!("account_ids() = {:?}", account_ids);
+    let account = account_ids.first().unwrap();
+
     input_selector
         .propose_transaction(
             params,
             wallet_db,
             target_height,
             anchor_height,
-            spend_from_account,
+//            spend_from_account,
+            *account,
             request,
         )
         .map_err(Error::from)
