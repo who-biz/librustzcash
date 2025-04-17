@@ -928,7 +928,7 @@ where
 
     let sapling_internal_ovk = || {
         #[cfg(feature = "transparent-inputs")]
-        /*if proposal_step.is_shielding() {
+        if proposal_step.is_shielding() {
             return Some(sapling::keys::OutgoingViewingKey(
                // TODO: Patch in HD Seed ovk here, mirroring that from verus core
                 usk.transparent()
@@ -936,7 +936,7 @@ where
                     .internal_ovk()
                     .as_bytes(),
             ));
-        }*/
+        }
 
         Some(sapling_dfvk.to_ovk(Scope::Internal))
     };
