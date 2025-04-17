@@ -449,8 +449,8 @@ where
     let account_ids = wallet_db.get_account_ids().unwrap();
     warn!("account_ids() = {:?}", account_ids);
     let account = account_ids.first().unwrap();
-    let account_zero = wallet_db.convert_account_id_type(AccountId::ZERO)
-    .map_err(|e| Error::from(InputSelectorError::DataSource(e)))?.unwrap();
+    let account_zero = wallet_db.get_zero_account_id();
+//    .map_err(|e| Error::from(InputSelectorError::DataSource(e)))?.unwrap();
 
     warn!("account_zero (converted) = {:?}", account_zero);
     

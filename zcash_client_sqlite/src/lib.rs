@@ -324,10 +324,16 @@ impl<C: Borrow<rusqlite::Connection>, P: consensus::Parameters> WalletRead for W
         wallet::get_derived_account(self.conn.borrow(), &self.params, seed, account_id)
     }
 
-    fn convert_account_id_type(
+    fn get_zero_account_id(&self) -> Self::AccountId {
+        AccountId(0)
+    }
+
+    /*fn convert_account_id_type(
         &self,
         account_id: zip32::AccountId,
-    ) -> Result<Option<Self::AccountId>, Self::Error>;
+    ) -> Result<Option<Self::AccountId>, Self::Error> {
+        Ok(Some(Self::AccountId(self.get_account(account_id).unwrap())))
+    }*/
 
     fn validate_seed(
         &self,
