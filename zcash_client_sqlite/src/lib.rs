@@ -567,10 +567,10 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
                     .map_err(|_| SqliteClientError::KeyDerivationError(account_index))?;
             let ufvk = usk.to_unified_full_viewing_key();
 
-            let mut account_id;
+            //let mut account_id;
 
-            if transparentkey.expose_secret().len() != 32 {
-                account_id = wallet::add_account(
+  //          if transparentkey.expose_secret().len() != 32 {
+                let account_id = wallet::add_account(
                     wdb.conn.0,
                     &wdb.params,
                     AccountSource::Derived {
@@ -580,7 +580,7 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
                     wallet::ViewingKey::Full(Box::new(ufvk)),
                     birthday,
                )?;
-            } else {
+    /*        } else {
                 account_id = wallet::add_account(
                     wdb.conn.0,
                     &wdb.params,
@@ -588,7 +588,7 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
                     wallet::ViewingKey::Full(Box::new(ufvk)),
                     birthday,
                )?;
-            } 
+            } */
             Ok((account_id, usk))
         })
     }
