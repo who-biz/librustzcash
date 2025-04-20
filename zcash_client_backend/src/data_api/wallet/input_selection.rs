@@ -464,9 +464,12 @@ where
                 &self.dust_output_policy,
             );
 
+            warn!("input.propose_tx: before match balance: shielded_inputs = {:?}", sapling_inputs);
+
             match balance {
                 Ok(balance) => {
-                    return Proposal::single_step(
+                   warn!("balance in Ok(balance) = {:?}", balance);
+                   let proposal = Proposal::single_step(
                         transaction_request,
                         payment_pools,
                         vec![],
@@ -475,13 +478,18 @@ where
                             #[cfg(feature = "orchard")]
                             orchard: use_orchard,
                         }))
-                        .map(|notes| ShieldedInputs::from_parts(anchor_height, notes)),
+                         .map(|notes| {
+                            warn!("notes: {:?}", notes);
+                            ShieldedInputs::from_parts(anchor_height, notes)
+                        }),
+//                        .map(|notes| ShieldedInputs::from_parts(anchor_height, notes)),
                         balance,
                         (*self.change_strategy.fee_rule()).clone(),
                         target_height,
                         false,
                     )
                     .map_err(InputSelectorError::Proposal);
+                    return proposal
                 }
                 Err(ChangeError::DustInputs {
                     mut sapling,
@@ -504,7 +512,7 @@ where
             #[cfg(feature = "orchard")]
             let selectable_pools = &[ShieldedProtocol::Sapling, ShieldedProtocol::Orchard];
 
-            warn!(">>> bp4, account = {:?}, anchor_height {:?}, exclude = {:?}", account, anchor_height, &exclude);
+            warn!(">>> bp4, account = {:?}, anchor_height {:?}, exclude = {:?}, selectable_pools {:?}", account, anchor_height, &exclude, selectable_pools);
 
             /*let account_zero: InputSource<AccountId> = AccountId::ZERO;
 
@@ -521,7 +529,7 @@ where
 
             warn!("Shielded inputs from AccountId(0) = {:?}", shielded_inputs);
             */
-            warn!("selecting inputs from AccountId(1)....");
+            warn!("selecting inputs from {:?} ....", account);
             let shielded_inputs = wallet_db
                 .select_spendable_notes(
                     account,
@@ -532,7 +540,7 @@ where
                 )
                 .map_err(InputSelectorError::DataSource)?;
 
-            warn!("Shielded inputs from AccountId(1) = {:?}", shielded_inputs);
+            warn!("Shielded inputs from {:?} = {:?}", account, shielded_inputs);
 
             let new_available = shielded_inputs.total_value()?;
             warn!("input_selector.propose_transaction >>>> bp5");

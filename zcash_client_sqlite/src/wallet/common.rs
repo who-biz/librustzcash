@@ -3,6 +3,8 @@
 use rusqlite::{named_params, types::Value, Connection, Row};
 use std::rc::Rc;
 
+use tracing::warn;
+
 use zcash_client_backend::{wallet::ReceivedNote, ShieldedProtocol};
 use zcash_primitives::transaction::{components::amount::NonNegativeAmount, TxId};
 use zcash_protocol::consensus::{self, BlockHeight};
@@ -116,6 +118,8 @@ pub(crate) fn select_spendable_notes<P: consensus::Parameters, F, Note>(
 where
     F: Fn(&P, &Row) -> Result<Option<ReceivedNote<ReceivedNoteId, Note>>, SqliteClientError>,
 {
+    warn!("sqlite::wallet::common::select_spendable_notes_called!");
+
     let birthday_height = match wallet_birthday(conn)? {
         Some(birthday) => birthday,
         None => {
@@ -125,8 +129,11 @@ where
         }
     };
 
+
+    warn!(">>>> common::select_notes bp1");
     let (table_prefix, index_col, note_reconstruction_cols) = per_protocol_names(protocol);
     if unscanned_tip_exists(conn, anchor_height, table_prefix)? {
+        warn!(">>>> common::select_notes bp1a");
         return Ok(vec![]);
     }
 

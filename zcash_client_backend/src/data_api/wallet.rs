@@ -446,13 +446,13 @@ where
         .map_err(|e| Error::from(InputSelectorError::DataSource(e)))?
         .ok_or_else(|| Error::from(InputSelectorError::SyncRequired))?;
 
-    let account_ids = wallet_db.get_account_ids().unwrap();
-    warn!("account_ids() = {:?}", account_ids);
-    let account = account_ids.first().unwrap();
-    let account_zero = wallet_db.get_zero_account_id();
+    //let account_ids = wallet_db.get_account_ids().unwrap();
+    //warn!("account_ids() = {:?}", account_ids);
+    //let account = account_ids.first().unwrap();
+   // let account_zero = wallet_db.get_zero_account_id();
 //    .map_err(|e| Error::from(InputSelectorError::DataSource(e)))?.unwrap();
 
-    warn!("account_zero (converted) = {:?}", account_zero);
+    //warn!("account_zero (converted) = {:?}", account_zero);
     
 
     input_selector
@@ -461,8 +461,8 @@ where
             wallet_db,
             target_height,
             anchor_height,
-//            spend_from_account,
-            account_zero,
+            spend_from_account,
+//            account_zero,
             request,
         )
         .map_err(Error::from)
