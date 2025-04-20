@@ -130,8 +130,8 @@ where
     };
 
 
-    warn!(">>>> common::select_notes bp1");
     let (table_prefix, index_col, note_reconstruction_cols) = per_protocol_names(protocol);
+    warn!(">>>> common::select_notes, table_prefix({:?}), index_col({:?}), note_col({:?}),  bp1", table_prefix, index_col, note_reconstruction_cols);
     if unscanned_tip_exists(conn, anchor_height, table_prefix)? {
         warn!(">>>> common::select_notes bp1a");
         return Ok(vec![]);
@@ -151,6 +151,91 @@ where
     // 3) Select all notes for which the running sum was less than the required value, as
     //    well as a single note for which the sum was greater than or equal to the
     //    required value, bringing the sum of all selected notes across the threshold.
+/*    let mut stmt_select_notes = conn.prepare_cached(
+        &format!(
+            "WITH eligible AS (
+                 SELECT
+                     {table_prefix}_received_notes.id AS id, txid, {index_col},
+                     diversifier, value, {note_reconstruction_cols}, commitment_tree_position,
+                     SUM(value) OVER (ROWS UNBOUNDED PRECEDING) AS so_far,
+                     accounts.ufvk as ufvk, recipient_key_scope
+                 FROM {table_prefix}_received_notes
+                 INNER JOIN accounts
+                    ON accounts.id = {table_prefix}_received_notes.account_id
+                 INNER JOIN transactions
+                    ON transactions.id_tx = {table_prefix}_received_notes.tx
+                 WHERE {table_prefix}_received_notes.account_id = :account 
+
+
+
+
+                 AND value >= 5000 -- FIXME #1016, allow selection of a dust inputs
+                 AND accounts.ufvk IS NOT NULL
+                 AND recipient_key_scope IS NOT NULL
+                 AND nf IS NOT NULL
+                 AND commitment_tree_position IS NOT NULL
+                 AND transactions.block <= :anchor_height
+                 AND transactions.block <= :wallet_birthday
+                 AND {table_prefix}_received_notes.id NOT IN rarray(:exclude)
+                 AND {table_prefix}_received_notes.id NOT IN (
+                   SELECT {table_prefix}_received_note_id
+                   FROM {table_prefix}_received_note_spends
+                   JOIN transactions stx ON stx.id_tx = transaction_id
+                   WHERE stx.block IS NOT NULL -- the spending tx is mined
+                   OR stx.expiry_height IS NULL -- the spending tx will not expire
+                   OR stx.expiry_height > :anchor_height -- the spending tx is unexpired
+                 )
+                  AND NOT EXISTS (
+                    SELECT 1 FROM v_{table_prefix}_shard_unscanned_ranges unscanned
+                    -- select all the unscanned ranges involving the shard containing this note
+                    WHERE {table_prefix}_received_notes.commitment_tree_position >= unscanned.start_position
+                    AND {table_prefix}_received_notes.commitment_tree_position < unscanned.end_position_exclusive
+                    -- exclude unscanned ranges that start above the anchor height (they don't affect spendability)
+                    AND unscanned.block_range_start <= :anchor_height
+                    -- exclude unscanned ranges that end below the wallet birthday
+                    AND unscanned.block_range_end > :wallet_birthday
+                 )
+             )
+             SELECT id, txid, {index_col},
+                    diversifier, value, {note_reconstruction_cols}, commitment_tree_position,
+                    ufvk, recipient_key_scope
+             FROM eligible WHERE so_far < :target_value
+             UNION
+             SELECT id, txid, {index_col},
+                    diversifier, value, {note_reconstruction_cols}, commitment_tree_position,
+                    ufvk, recipient_key_scope
+             FROM (SELECT * from eligible WHERE so_far >= :target_value LIMIT 1)",
+        )
+    )?;
+
+    let excluded: Vec<Value> = exclude
+        .iter()
+        .filter_map(|ReceivedNoteId(p, n)| {
+            if *p == protocol {
+                Some(Value::from(*n))
+            } else {
+                None
+            }
+        })
+        .collect();
+    let excluded_ptr = Rc::new(excluded);
+
+    let notes = stmt_select_notes.query_and_then(
+        named_params![
+            ":account": account.0,
+            ":anchor_height": &u32::from(anchor_height),
+            ":target_value": &u64::from(target_value),
+            ":exclude": &excluded_ptr,
+            ":wallet_birthday": u32::from(birthday_height)
+        ],
+        |r| to_spendable_note(params, r),
+    )?;
+
+    notes
+        .filter_map(|r| r.transpose())
+        .collect::<Result<_, _>>()
+}*/
+
     let mut stmt_select_notes = conn.prepare_cached(
         &format!(
             "WITH eligible AS (
@@ -164,32 +249,16 @@ where
                     ON accounts.id = {table_prefix}_received_notes.account_id
                  INNER JOIN transactions
                     ON transactions.id_tx = {table_prefix}_received_notes.tx
-                 WHERE {table_prefix}_received_notes.account_id = :account
-                 AND value >= 5000 -- FIXME #1016, allow selection of a dust inputs
-                 AND accounts.ufvk IS NOT NULL
-                 AND recipient_key_scope IS NOT NULL
-                 AND nf IS NOT NULL
-                 AND commitment_tree_position IS NOT NULL
+                 WHERE {table_prefix}_received_notes.account_id = :account 
                  AND transactions.block <= :anchor_height
+                 AND transactions.block <= :wallet_birthday
                  AND {table_prefix}_received_notes.id NOT IN rarray(:exclude)
                  AND {table_prefix}_received_notes.id NOT IN (
                    SELECT {table_prefix}_received_note_id
                    FROM {table_prefix}_received_note_spends
                    JOIN transactions stx ON stx.id_tx = transaction_id
                    WHERE stx.block IS NOT NULL -- the spending tx is mined
-                   OR stx.expiry_height IS NULL -- the spending tx will not expire
-                   OR stx.expiry_height > :anchor_height -- the spending tx is unexpired
-                 )
-              /*   AND NOT EXISTS (
-                    SELECT 1 FROM v_{table_prefix}_shard_unscanned_ranges unscanned
-                    -- select all the unscanned ranges involving the shard containing this note
-                    WHERE {table_prefix}_received_notes.commitment_tree_position >= unscanned.start_position
-                    AND {table_prefix}_received_notes.commitment_tree_position < unscanned.end_position_exclusive
-                    -- exclude unscanned ranges that start above the anchor height (they don't affect spendability)
-                    AND unscanned.block_range_start <= :anchor_height
-                    -- exclude unscanned ranges that end below the wallet birthday
-                    AND unscanned.block_range_end > :wallet_birthday
-                 )*/
+                )
              )
              SELECT id, txid, {index_col},
                     diversifier, value, {note_reconstruction_cols}, commitment_tree_position,
