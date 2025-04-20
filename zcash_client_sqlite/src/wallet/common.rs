@@ -180,7 +180,7 @@ where
                    OR stx.expiry_height IS NULL -- the spending tx will not expire
                    OR stx.expiry_height > :anchor_height -- the spending tx is unexpired
                  )
-                 AND NOT EXISTS (
+              /*   AND NOT EXISTS (
                     SELECT 1 FROM v_{table_prefix}_shard_unscanned_ranges unscanned
                     -- select all the unscanned ranges involving the shard containing this note
                     WHERE {table_prefix}_received_notes.commitment_tree_position >= unscanned.start_position
@@ -189,7 +189,7 @@ where
                     AND unscanned.block_range_start <= :anchor_height
                     -- exclude unscanned ranges that end below the wallet birthday
                     AND unscanned.block_range_end > :wallet_birthday
-                 )
+                 )*/
              )
              SELECT id, txid, {index_col},
                     diversifier, value, {note_reconstruction_cols}, commitment_tree_position,
