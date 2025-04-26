@@ -253,12 +253,6 @@ where
                  AND transactions.block <= :anchor_height
                  AND transactions.block <= :wallet_birthday
                  AND {table_prefix}_received_notes.id NOT IN rarray(:exclude)
-                 AND {table_prefix}_received_notes.id NOT IN (
-                   SELECT {table_prefix}_received_note_id
-                   FROM {table_prefix}_received_note_spends
-                   JOIN transactions stx ON stx.id_tx = transaction_id
-                   WHERE stx.block IS NOT NULL -- the spending tx is mined
-                )
              )
              SELECT id, txid, {index_col},
                     diversifier, value, {note_reconstruction_cols}, commitment_tree_position,
