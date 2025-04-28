@@ -546,7 +546,7 @@ where
             warn!("input_selector.propose_transaction >>>> bp5");
 
             if new_available <= prior_available {
-            warn!("input_selector.propose_transaction >>>> bp5a");
+            warn!("input_selector.propose_transaction >>>> bp5a, new_available({:?}), prior({:?})", new_available, prior_available);
                 return Err(InputSelectorError::InsufficientFunds {
                     required: amount_required,
                     available: new_available,
