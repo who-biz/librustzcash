@@ -250,8 +250,8 @@ where
                  INNER JOIN transactions
                     ON transactions.id_tx = {table_prefix}_received_notes.tx
                  WHERE {table_prefix}_received_notes.account_id = :account 
-                 AND transactions.block <= :anchor_height
-                 AND transactions.block <= :wallet_birthday
+                 AND transactions.block >= :anchor_height
+                 AND transactions.block >= :wallet_birthday
                  AND {table_prefix}_received_notes.id NOT IN rarray(:exclude)
              )
              SELECT id, txid, {index_col},
