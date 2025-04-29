@@ -151,7 +151,7 @@ where
     // 3) Select all notes for which the running sum was less than the required value, as
     //    well as a single note for which the sum was greater than or equal to the
     //    required value, bringing the sum of all selected notes across the threshold.
-/*    let mut stmt_select_notes = conn.prepare_cached(
+    let mut stmt_select_notes = conn.prepare_cached(
         &format!(
             "WITH eligible AS (
                  SELECT
@@ -174,8 +174,8 @@ where
                  AND recipient_key_scope IS NOT NULL
                  AND nf IS NOT NULL
                  AND commitment_tree_position IS NOT NULL
-                 AND transactions.block <= :anchor_height
-                 AND transactions.block <= :wallet_birthday
+                 AND transactions.block >= :anchor_height
+                 AND transactions.block >= :wallet_birthday
                  AND {table_prefix}_received_notes.id NOT IN rarray(:exclude)
                  AND {table_prefix}_received_notes.id NOT IN (
                    SELECT {table_prefix}_received_note_id
@@ -234,9 +234,9 @@ where
     notes
         .filter_map(|r| r.transpose())
         .collect::<Result<_, _>>()
-}*/
+}
 
-    let mut stmt_select_notes = conn.prepare_cached(
+/*    let mut stmt_select_notes = conn.prepare_cached(
         &format!(
             "WITH eligible AS (
                  SELECT
@@ -291,5 +291,5 @@ where
 
     notes
         .filter_map(|r| r.transpose())
-        .collect::<Result<_, _>>()
-}
+        .collect::<Result<_, _>>() 
+}*/
