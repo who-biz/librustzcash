@@ -389,6 +389,7 @@ where
             }
         }
 
+        warn!("input_selector.propose_transaction >>>> bp1");
         let mut shielded_inputs = SpendableNotes::empty();
         let mut prior_available = NonNegativeAmount::ZERO;
         let mut amount_required = NonNegativeAmount::ZERO;
@@ -417,6 +418,7 @@ where
                 (use_sapling, use_orchard)
             };
 
+            warn!("input_selector.propose_transaction >>>> bp2");
             let sapling_inputs = if use_sapling {
                 shielded_inputs
                     .sapling()
@@ -426,6 +428,8 @@ where
             } else {
                 vec![]
             };
+
+           warn!("input_selector.propose_transaction, sapling_inputs = {:?}", sapling_inputs);
 
             #[cfg(feature = "orchard")]
             let orchard_inputs = if use_orchard {
@@ -438,6 +442,7 @@ where
                 vec![]
             };
 
+            warn!("input_selector.propose_transaction >>>> bp3");
             let balance = self.change_strategy.compute_balance(
                 params,
                 target_height,
@@ -456,6 +461,8 @@ where
                 ),
                 &self.dust_output_policy,
             );
+
+            warn!("input.propose_tx: before match balance: shielded_inputs = {:?}", sapling_inputs);
 
             match balance {
                 Ok(balance) => {
@@ -497,6 +504,7 @@ where
             #[cfg(feature = "orchard")]
             let selectable_pools = &[ShieldedProtocol::Sapling, ShieldedProtocol::Orchard];
 
+            warn!(">>> bp4, account = {:?}, anchor_height {:?}, exclude = {:?}, selectable_pools {:?}", account, anchor_height, &exclude, selectable_pools);
             shielded_inputs = wallet_db
                 .select_spendable_notes(
                     account,
@@ -507,8 +515,11 @@ where
                 )
                 .map_err(InputSelectorError::DataSource)?;
 
+            warn!(">>> bp4 selecting inputs from {:?} ....", account);
+
             let new_available = shielded_inputs.total_value()?;
             if new_available <= prior_available {
+                warn!("input_selector.propose_transaction >>>> bp5a, new_available({:?}), prior({:?})", new_available, prior_available);
                 return Err(InputSelectorError::InsufficientFunds {
                     required: amount_required,
                     available: new_available,
