@@ -743,9 +743,9 @@ where
                                 #[cfg(feature = "orchard")]
                                 Note::Orchard(_) => None,
                             })
-                            .collect::<Result<Vec<_>, Error<_, _, _, _>>>();
+                            .collect::<Result<Vec<_>, Error<_, _, _, _>>>()?;
 
-                        warn!(">>> bp4, before Ok(anchor,sapling_inputs), create_proposed_tx, sapling_inputs({:?})", sapling_inputs.unwrap());
+                        warn!(">>> bp4, before Ok(anchor,sapling_inputs), create_proposed_tx, sapling_inputs({:?})", sapling_inputs);
                         Ok((Some(anchor), sapling_inputs))
                     })
                 },
