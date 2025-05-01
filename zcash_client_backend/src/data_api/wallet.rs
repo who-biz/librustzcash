@@ -732,7 +732,8 @@ where
 
                                     warn!(">>> bp3 create_proposed_tx, note({:?})", note);
                                     sapling_tree
-                                        .witness_at_checkpoint_id_caching(
+//                                        .witness_at_checkpoint_id_caching(
+                                        .witness_at_checkpoint_id(
                                             selected.note_commitment_tree_position(),
                                             &inputs.anchor_height(),
                                         )
