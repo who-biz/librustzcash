@@ -120,3 +120,7 @@ zip32 = "0.1.1"
 lto = true
 panic = 'abort'
 codegen-units = 1
+
+[patch.crates-io]
+sapling-crypto = { git = "https://github.com/who-biz/sapling-crypto", branch = "verus" }
+
