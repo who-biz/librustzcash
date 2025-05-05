@@ -165,7 +165,7 @@ where
                  AND recipient_key_scope IS NOT NULL
                  AND nf IS NOT NULL
                  AND commitment_tree_position IS NOT NULL
-                 AND transactions.block >= :anchor_height
+                 AND transactions.block <= :anchor_height
                  AND {table_prefix}_received_notes.id NOT IN rarray(:exclude)
                  AND {table_prefix}_received_notes.id NOT IN (
                    SELECT {table_prefix}_received_note_id
@@ -181,7 +181,7 @@ where
                     WHERE {table_prefix}_received_notes.commitment_tree_position >= unscanned.start_position
                     AND {table_prefix}_received_notes.commitment_tree_position < unscanned.end_position_exclusive
                     -- exclude unscanned ranges that start above the anchor height (they don't affect spendability)
-                    AND unscanned.block_range_start >= :anchor_height
+                    AND unscanned.block_range_start <= :anchor_height
                     -- exclude unscanned ranges that end below the wallet birthday
                     AND unscanned.block_range_end > :wallet_birthday
                  )
