@@ -1752,6 +1752,7 @@ pub(crate) fn get_target_and_anchor_heights(
     conn: &rusqlite::Connection,
     min_confirmations: NonZeroU32,
 ) -> Result<Option<(BlockHeight, BlockHeight)>, rusqlite::Error> {
+    warn!("get_target_and_anchor_heights called!");
     match scan_queue_extrema(conn)?.map(|range| *range.end()) {
         Some(chain_tip_height) => {
             let sapling_anchor_height = get_max_checkpointed_height(
@@ -1761,6 +1762,7 @@ pub(crate) fn get_target_and_anchor_heights(
                 min_confirmations,
             )?;
 
+            warn!("get_target_and_anchor_heights.bp1, sapling_anchor_height({:?})", sapling_anchor_height);
             #[cfg(feature = "orchard")]
             let orchard_anchor_height = get_max_checkpointed_height(
                 conn,
@@ -1778,6 +1780,7 @@ pub(crate) fn get_target_and_anchor_heights(
                 .or(sapling_anchor_height)
                 .or(orchard_anchor_height);
 
+            warn!("get_target_and_anchor_heights.bp2, anchor_height({:?})", anchor_height);
             Ok(anchor_height.map(|h| (chain_tip_height + 1, h)))
         }
         None => Ok(None),
