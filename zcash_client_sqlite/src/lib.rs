@@ -946,7 +946,7 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
                 );
 
                 // Newly added by Biz
-                #[cfg(not(feature = "linearscanning"))]
+                //#[cfg(not(feature = "linearscanning"))]
                 // Update the Sapling note commitment tree with all newly read note commitments
                 {
                     warn!(">>> bp3 sapling tree");
