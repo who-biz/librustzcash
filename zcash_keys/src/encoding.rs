@@ -67,7 +67,7 @@ impl fmt::Display for Bech32DecodeError {
 }
 
 #[cfg(feature = "sapling")]
-fn bech32_decode<T, F>(hrp: &str, s: &str, read: F) -> Result<T, Bech32DecodeError>
+pub fn bech32_decode<T, F>(hrp: &str, s: &str, read: F) -> Result<T, Bech32DecodeError>
 where
     F: Fn(Vec<u8>) -> Option<T>,
 {

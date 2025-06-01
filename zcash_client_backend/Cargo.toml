@@ -132,6 +132,8 @@ time = "0.3.22" # time 0.3.24 has MSRV 1.67
 [features]
 ## Enables the `tonic` gRPC client bindings for connecting to a `lightwalletd` server.
 lightwalletd-tonic = ["dep:tonic"]
+## Needed for bech32_decode
+sapling = ["zcash_keys/sapling"]
 
 ## Enables the `transport` feature of `tonic` producing a fully-featured client and server implementation
 lightwalletd-tonic-transport = ["lightwalletd-tonic", "tonic?/transport"]
