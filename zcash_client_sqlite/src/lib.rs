@@ -819,7 +819,7 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
             if let Some((start_positions, last_scanned_height)) =
                 start_positions.zip(last_scanned_height)
             {
-                warn!(">>> bp1 sapling tree");
+                //warn!(">>> bp1 sapling tree");
                 // Create subtrees from the note commitments in parallel.
 
                 // TODO: Biz: figure out if we can remove some of this too, with 'linearscanning' feature
@@ -860,7 +860,7 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
                     .map(|res| (res.subtree, res.checkpoints))
                     .collect::<Vec<_>>();
 
-                warn!(">>> bp2 sapling tree");
+                //warn!(">>> bp2 sapling tree");
                 // Collect the complete set of Sapling checkpoints
 		// TODO: check if this sapling-based code should actually be behind this
 		// conditional compilation cfg macro
@@ -949,15 +949,15 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
                 //#[cfg(not(feature = "linearscanning"))]
                 // Update the Sapling note commitment tree with all newly read note commitments
                 {
-                    warn!(">>> bp3 sapling tree");
+                    //warn!(">>> bp3 sapling tree");
 
                     let mut sapling_subtrees_iter = sapling_subtrees.into_iter();
                     wdb.with_sapling_tree_mut::<_, _, Self::Error>(|sapling_tree| {
-                        warn!(
+                        /*warn!(
                             "Sapling initial tree size at {:?}: {:?}",
                             from_state.block_height(),
                             from_state.final_sapling_tree().tree_size()
-                        );
+                        );*/
                         sapling_tree.insert_frontier(
                             from_state.final_sapling_tree().clone(),
                             Retention::Checkpoint {
@@ -1060,7 +1060,7 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
                 )?;
             }
 
-            warn!(">>> bp4 sapling tree");
+            //warn!(">>> bp4 sapling tree");
             Ok(())
         })
     }

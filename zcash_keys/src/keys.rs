@@ -7,8 +7,7 @@ use std::{
 #[cfg(feature = "transparent-inputs")]
 use secp256k1::{Secp256k1};
 
-use tracing::{warn};
-
+//use tracing::{warn};
 use zcash_address::unified::{self, Container, Encoding, Typecode, Ufvk, Uivk};
 use zcash_protocol::consensus;
 use zip32::{AccountId, DiversifierIndex};
@@ -793,7 +792,7 @@ impl UnifiedFullViewingKey {
                 unified::Fvk::P2pkh(data) => legacy::AccountPubKey::deserialize(data)
                     .map_err(|_| DecodingError::KeyDataInvalid(Typecode::P2pkh))
                     .map(|tfvk| {
-                       warn!("tfvk: {:?}", tfvk.serialize());
+                       //warn!("tfvk: {:?}", tfvk.serialize());
                         transparent = Some(tfvk);
                         None
                     })
@@ -1102,7 +1101,7 @@ impl UnifiedIncomingViewingKey {
             self.transparent
                 .as_ref()
                 .map(|tivk| { 
-                       warn!("tivk: {:?}", tivk.serialize());
+                       //warn!("tivk: {:?}", tivk.serialize());
                         tivk.serialize().try_into().unwrap()
                       }
                  )
@@ -1201,7 +1200,7 @@ impl UnifiedIncomingViewingKey {
                 //        .map_err(|_| AddressGenerationError::InvalidTransparentChildIndex(_j))?,
                 //);
 
-                warn!("zcash_keys::address::tivk {:?}", tivk.serialize());
+                //warn!("zcash_keys::address::tivk {:?}", tivk.serialize());
                 transparent = Some(tivk.derive_legacy_address());
             } else {
                 return Err(AddressGenerationError::KeyNotAvailable(Typecode::P2pkh));
