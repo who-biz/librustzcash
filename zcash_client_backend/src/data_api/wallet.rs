@@ -945,7 +945,7 @@ where
         #[cfg(feature = "transparent-inputs")]
         if proposal_step.is_shielding() {
             return Some(sapling::keys::OutgoingViewingKey(
-               // TODO: Patch in HD Seed ovk here, mirroring that from verus core
+               // TODO: Patch in HD Seed ovk here (?), mirroring that from verus core
                 usk.transparent()
                     .to_account_pubkey()
                     .internal_ovk()

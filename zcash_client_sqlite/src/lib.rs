@@ -822,7 +822,7 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
                 //warn!(">>> bp1 sapling tree");
                 // Create subtrees from the note commitments in parallel.
 
-                // TODO: Biz: figure out if we can remove some of this too, with 'linearscanning' feature
+                // TODO: Biz: figure out if we can remove some of this, with 'linearscanning' feature
 
                 const CHUNK_SIZE: usize = 1024;
                 let sapling_subtrees = sapling_commitments
@@ -862,8 +862,6 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
 
                 //warn!(">>> bp2 sapling tree");
                 // Collect the complete set of Sapling checkpoints
-		// TODO: check if this sapling-based code should actually be behind this
-		// conditional compilation cfg macro
                 #[cfg(feature = "orchard")]
                 let sapling_checkpoint_positions: BTreeMap<BlockHeight, Position> =
                     sapling_subtrees
