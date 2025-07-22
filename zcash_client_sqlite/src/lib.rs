@@ -72,6 +72,7 @@ use zcash_client_backend::{
     DecryptedOutput, PoolType, ShieldedProtocol, TransferType,
 };
 use zcash_keys::address::Address;
+use zcash_keys::keys::sapling::ExtendedSpendingKey;
 use zcash_primitives::{
     block::BlockHash,
     consensus::{self, BlockHeight},
@@ -328,6 +329,7 @@ impl<C: Borrow<rusqlite::Connection>, P: consensus::Parameters> WalletRead for W
         &self,
         account_id: Self::AccountId,
         transparentkey: &SecretVec<u8>,
+        extsk: &SecretVec<u8>,
         seed: &SecretVec<u8>,
     ) -> Result<bool, Self::Error> {
         if let Some(account) = self.get_account(account_id)? {
@@ -339,6 +341,7 @@ impl<C: Borrow<rusqlite::Connection>, P: consensus::Parameters> WalletRead for W
                 wallet::seed_matches_derived_account(
                     &self.params,
                     transparentkey,
+                    extsk,
                     seed,
                     &seed_fingerprint,
                     account_index,
@@ -356,6 +359,7 @@ impl<C: Borrow<rusqlite::Connection>, P: consensus::Parameters> WalletRead for W
     fn seed_relevance_to_derived_accounts(
         &self,
         transparentkey: &SecretVec<u8>,
+        extsk: &SecretVec<u8>,
         seed: &SecretVec<u8>,
     ) -> Result<SeedRelevance<Self::AccountId>, Self::Error> {
         let mut has_accounts = false;
@@ -380,6 +384,7 @@ impl<C: Borrow<rusqlite::Connection>, P: consensus::Parameters> WalletRead for W
                 if wallet::seed_matches_derived_account(
                     &self.params,
                     transparentkey,
+                    extsk,
                     seed,
                     &seed_fingerprint,
                     account_index,
@@ -547,10 +552,19 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
     fn create_account(
         &mut self,
         transparentkey: &SecretVec<u8>,
+        extsk: &SecretVec<u8>,
         seed: &SecretVec<u8>,
         birthday: &AccountBirthday,
     ) -> Result<(AccountId, UnifiedSpendingKey), Self::Error> {
         self.transactionally(|wdb| {
+
+
+            if (extsk.expose_secret().len() != 0) && (extsk.expose_secret().len() != 169) {
+               //throw error, we should only have one with data
+            }
+
+            
+       
             let seed_fingerprint =
                 SeedFingerprint::from_seed(seed.expose_secret()).ok_or_else(|| {
                     SqliteClientError::BadAccountData(
@@ -562,9 +576,18 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
                 .transpose()?
                 .unwrap_or(zip32::AccountId::ZERO);
 
-            let usk =
-                UnifiedSpendingKey::from_seed(&wdb.params, transparentkey.expose_secret(), seed.expose_secret(), account_index)
-                    .map_err(|_| SqliteClientError::KeyDerivationError(account_index))?;
+//            let usk;
+            
+//            if (seed.expose_secret().len() > 0) {
+             let usk =
+                    UnifiedSpendingKey::from_seed(&wdb.params, transparentkey.expose_secret(), extsk.expose_secret(), seed.expose_secret(), account_index)
+                        .map_err(|_| SqliteClientError::KeyDerivationError(account_index))?;
+          //  } else if (extsk.expose_secret().len() > 0) {
+            //   let sapling_extsk = ExtendedSpendingKey::from_bytes(extsk.expose_secret());
+            //   usk = UnifiedSpendingKey::from_bytes(sapling_extsk?.to_bytes());
+//               usk = UnifiedSpendingKey::from_bytes(Era::Orchard, &extsk.expose_secret());
+//            }
+
             let ufvk = usk.to_unified_full_viewing_key();
 
             let mut account_id;

@@ -97,7 +97,7 @@ impl<P: consensus::Parameters> RusqliteMigration for Migration<P> {
                       WalletMigrationError::CorruptedData("Account ID is invalid".to_owned())
                   })?;
                   let usk =
-                      UnifiedSpendingKey::from_seed(&self.params, transparentkey.expose_secret(), seed.expose_secret(), account)
+                      UnifiedSpendingKey::from_seed(&self.params, transparentkey.expose_secret(), &[], seed.expose_secret(), account)
                           .map_err(|_| {
                               if seed_is_relevant {
                                   WalletMigrationError::CorruptedData(

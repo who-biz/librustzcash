@@ -42,9 +42,12 @@ use {
 use orchard::{self, keys::Scope};
 
 #[cfg(feature = "sapling")]
+use ::sapling::keys;
+
+#[cfg(feature = "sapling")]
 pub mod sapling {
     pub use sapling::zip32::{
-        DiversifiableFullViewingKey, ExtendedFullViewingKey, ExtendedSpendingKey,
+        DiversifiableFullViewingKey, ExtendedFullViewingKey, ExtendedSpendingKey
     };
     use zip32::{AccountId, ChildIndex};
 
@@ -96,6 +99,8 @@ fn to_transparent_child_index(j: DiversifierIndex) -> Option<NonHardenedChildInd
 pub enum DerivationError {
     #[cfg(feature = "orchard")]
     Orchard(orchard::zip32::Error),
+    #[cfg(feature = "sapling")]
+    Sapling,
     #[cfg(feature = "transparent-inputs")]
     Transparent(secp256k1::Error),
     #[cfg(feature = "transparent-inputs")]
@@ -107,6 +112,8 @@ impl Display for DerivationError {
         match self {
             #[cfg(feature = "orchard")]
             DerivationError::Orchard(e) => write!(_f, "Orchard error: {}", e),
+            #[cfg(feature = "sapling")]
+            DerivationError::Sapling => write!(_f, "Sapling derivation error"),
             #[cfg(feature = "transparent-inputs")]
             DerivationError::Transparent(e) => write!(_f, "Transparent error: {}", e),
             #[cfg(feature = "transparent-inputs")]
@@ -218,6 +225,7 @@ impl UnifiedSpendingKey {
     pub fn from_seed<P: consensus::Parameters>(
         _params: &P,
         transparentkey: &[u8],
+        extsk: &[u8],
         seed: &[u8],
         _account: AccountId,
     ) -> Result<UnifiedSpendingKey, DerivationError> {
@@ -227,6 +235,10 @@ impl UnifiedSpendingKey {
 
         if transparentkey.len() != 33 && transparentkey.len() != 0 {
            panic!("transparentkey MUST be exactly 33 bytes, key {:?}\n seed: {:?}", transparentkey, seed);
+        }
+
+        if extsk.len() > 0 && seed.len() > 0 {
+           panic!("Cannot use both an extsk and a seed in the same z-address derivation!");
         }
 
         #[cfg(feature = "transparent-inputs")]
@@ -239,12 +251,18 @@ impl UnifiedSpendingKey {
             }
         }
 
+        let sapling_key;
+        if (extsk.len() > 0) {
+            sapling_key = sapling::ExtendedSpendingKey::from_bytes(extsk).map_err(|_| DerivationError::Sapling)?;
+        } else {
+            sapling_key = sapling::spending_key(seed, _params.coin_type(), _account);
+        }
         UnifiedSpendingKey::from_checked_parts(
             #[cfg(feature = "transparent-inputs")]
             transparent_key,
             //.map_err(|e: secp256k1::Error| DerivationError::Transparent(e))?,
             #[cfg(feature = "sapling")]
-            sapling::spending_key(seed, _params.coin_type(), _account),
+            sapling_key,
             #[cfg(feature = "orchard")]
             orchard::keys::SpendingKey::from_zip32_seed(seed, _params.coin_type(), _account)
                 .map_err(DerivationError::Orchard)?,
@@ -645,6 +663,13 @@ impl UnifiedAddressRequest {
 impl From<hdwallet::error::Error> for DerivationError {
     fn from(e: hdwallet::error::Error) -> Self {
         DerivationError::TransparentHD(e)
+    }
+}
+
+#[cfg(feature = "transparent-inputs")]
+impl From<sapling_crypto::keys::DecodingError> for DerivationError {
+    fn from(e: sapling_crypto::keys::DecodingError) -> Self {
+        DerivationError::Sapling(e)
     }
 }
 
@@ -1290,6 +1315,7 @@ pub mod testing {
                         UnifiedSpendingKey::from_seed(
                             &params,
                             &transparentkey,
+                            &[],
                             &seed,
                             AccountId::try_from(account & ((1 << 31) - 1)).unwrap(),
                         )
