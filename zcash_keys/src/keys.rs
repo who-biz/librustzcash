@@ -7,7 +7,7 @@ use std::{
 #[cfg(feature = "transparent-inputs")]
 use secp256k1::{Secp256k1};
 
-//use tracing::{warn};
+use tracing::{warn};
 use zcash_address::unified::{self, Container, Encoding, Typecode, Ufvk, Uivk};
 use zcash_protocol::consensus;
 use zip32::{AccountId, DiversifierIndex};
@@ -70,7 +70,7 @@ pub mod sapling {
     /// [`ExtendedSpendingKey`]: sapling::zip32::ExtendedSpendingKey
     pub fn spending_key(seed: &[u8], coin_type: u32, account: AccountId) -> ExtendedSpendingKey {
         if seed.len() < 32 {
-            panic!("ZIP 32 seeds MUST be at least 32 bytes");
+            panic!("ZIP 32 seeds MUST be at least 32 bytes - in spending_key(), seed({:?})", seed);
         }
 
         ExtendedSpendingKey::from_path(
@@ -229,8 +229,10 @@ impl UnifiedSpendingKey {
         seed: &[u8],
         _account: AccountId,
     ) -> Result<UnifiedSpendingKey, DerivationError> {
-        if seed.len() < 32 {
-            panic!("ZIP 32 seeds MUST be at least 32 bytes");
+        if seed.len() != 0 {
+            if seed.len() < 32 {
+                panic!("ZIP 32 seeds MUST be at least 32 bytes - in from_seed(), seed({:?})", seed);
+            }
         }
 
         if transparentkey.len() != 33 && transparentkey.len() != 0 {
@@ -250,6 +252,8 @@ impl UnifiedSpendingKey {
                 transparent_key = legacy::AccountPrivKey::from_seed(_params, seed, _account)?;
             }
         }
+
+        warn!("extsk({:?}), seed({:?})", extsk, seed);
 
         let sapling_key;
         if (extsk.len() > 0) {
