@@ -560,21 +560,31 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
 
 
             if (extsk.expose_secret().len() != 0) && (extsk.expose_secret().len() != 169) {
+               panic!("extsk must have an exact length of 169 bytes!");
                //throw error, we should only have one with data
             }
+            let mut account_index = zip32::AccountId::ZERO;
 
-            
-       
-            let seed_fingerprint =
-                SeedFingerprint::from_seed(seed.expose_secret()).ok_or_else(|| {
-                    SqliteClientError::BadAccountData(
-                        "Seed must be between 32 and 252 bytes in length.".to_owned(),
-                    )
-                })?;
-            let account_index = wallet::max_zip32_account_index(wdb.conn.0, &seed_fingerprint)?
-                .map(|a| a.next().ok_or(SqliteClientError::AccountIdOutOfRange))
-                .transpose()?
-                .unwrap_or(zip32::AccountId::ZERO);
+            let seed_fingerprint;
+            if seed.expose_secret().len() > 0 {
+                seed_fingerprint =
+                    SeedFingerprint::from_seed(seed.expose_secret()).ok_or_else(|| {
+                        SqliteClientError::BadAccountData(
+                            "Seed must be between 32 and 252 bytes in length.".to_owned(),
+                        )
+                    })?;
+                account_index = wallet::max_zip32_account_index(wdb.conn.0, &seed_fingerprint)?
+                    .map(|a| a.next().ok_or(SqliteClientError::AccountIdOutOfRange))
+                    .transpose()?
+                    .unwrap_or(zip32::AccountId::ZERO);
+              } else {
+                seed_fingerprint = 
+                    SeedFingerprint::from_seed(seed.expose_secret()).ok_or_else(|| {
+                        SqliteClientError::BadAccountData(
+                            "Seed must be between 32 and 252 bytes in length.".to_owned(),
+                        )
+                    })?;
+              }
 
 //            let usk;
             
@@ -582,6 +592,7 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
              let usk =
                     UnifiedSpendingKey::from_seed(&wdb.params, transparentkey.expose_secret(), extsk.expose_secret(), seed.expose_secret(), account_index)
                         .map_err(|_| SqliteClientError::KeyDerivationError(account_index))?;
+
           //  } else if (extsk.expose_secret().len() > 0) {
             //   let sapling_extsk = ExtendedSpendingKey::from_bytes(extsk.expose_secret());
             //   usk = UnifiedSpendingKey::from_bytes(sapling_extsk?.to_bytes());
@@ -592,7 +603,7 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
 
             let mut account_id;
 
-            if transparentkey.expose_secret().len() != 32 {
+            if (transparentkey.expose_secret().len() != 32) || (extsk.expose_secret().len() != 169) {
                 account_id = wallet::add_account(
                     wdb.conn.0,
                     &wdb.params,
