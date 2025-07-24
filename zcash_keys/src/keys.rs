@@ -42,14 +42,12 @@ use {
 use orchard::{self, keys::Scope};
 
 #[cfg(feature = "sapling")]
-use ::sapling::keys;
-
-#[cfg(feature = "sapling")]
 pub mod sapling {
     pub use sapling::zip32::{
         DiversifiableFullViewingKey, ExtendedFullViewingKey, ExtendedSpendingKey
     };
     use zip32::{AccountId, ChildIndex};
+
 
     /// Derives the ZIP 32 [`ExtendedSpendingKey`] for a given coin type and account from the
     /// given seed.
@@ -82,6 +80,41 @@ pub mod sapling {
             ],
         )
     }
+/*    pub fn spending_key_from_bytes(b: &[u8]) -> Result<ExtendedSpendingKey, DecodingError> {
+        if b.len() != 169 {
+            return Err(DecodingError::LengthInvalid {
+                expected: 169,
+                actual: b.len(),
+            });
+        }
+
+        let depth = b[0];
+
+        let mut parent_fvk_tag = FvkTag([0; 4]);
+        parent_fvk_tag.0[..].copy_from_slice(&b[1..5]);
+
+        let mut ci_bytes = [0u8; 4];
+        ci_bytes[..].copy_from_slice(&b[5..9]);
+        let child_index = KeyIndex::new(depth, u32::from_le_bytes(ci_bytes))
+            .ok_or(DecodingError::UnsupportedChildIndex)?;
+
+        let mut c = [0u8; 32];
+        c[..].copy_from_slice(&b[9..41]);
+
+        let expsk = ExpandedSpendingKey::from_bytes(&b[41..137])?;
+
+        let mut dk = DiversifierKey([0u8; 32]);
+        dk.0[..].copy_from_slice(&b[137..169]);
+
+        Ok(ExtendedSpendingKey {
+            depth,
+            parent_fvk_tag,
+            child_index,
+            chain_code: ChainCode::new(c),
+            expsk,
+            dk,
+        })
+    }*/
 }
 
 #[cfg(feature = "transparent-inputs")]
@@ -256,8 +289,12 @@ impl UnifiedSpendingKey {
         warn!("extsk({:?}), seed({:?})", extsk, seed);
 
         let sapling_key;
-        if (extsk.len() > 0) {
-            sapling_key = sapling::ExtendedSpendingKey::from_bytes(&extsk).map_err(|_| DerivationError::Sapling)?;
+
+        if extsk.len() > 0 {
+//                 sapling_key = ExtendedSpendingKey::from_bytes(&key)?;
+
+            sapling_key = sapling::ExtendedSpendingKey::from_bytes(&extsk).unwrap();
+//map_err(|_| DerivationError::Sapling)?;
             warn!("sapling_key({:?})", sapling_key);
         } else {
             sapling_key = sapling::spending_key(seed, _params.coin_type(), _account);
@@ -671,12 +708,11 @@ impl From<hdwallet::error::Error> for DerivationError {
     }
 }
 
-#[cfg(feature = "transparent-inputs")]
-impl From<sapling_crypto::keys::DecodingError> for DerivationError {
-    fn from(e: sapling_crypto::keys::DecodingError) -> Self {
+/*impl From<sapling::DecodingError> for DerivationError {
+    fn from(e: sapling::DecodingError) -> Self {
         DerivationError::Sapling(e)
     }
-}
+}*/
 
 #[cfg(feature = "transparent-inputs")]
 impl From<secp256k1::Error> for DerivationError {
