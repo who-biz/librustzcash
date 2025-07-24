@@ -579,7 +579,7 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
                     .unwrap_or(zip32::AccountId::ZERO);
               } else {
                 seed_fingerprint = 
-                    SeedFingerprint::from_seed(seed.expose_secret()).ok_or_else(|| {
+                    SeedFingerprint::from_seed(extsk.expose_secret()).ok_or_else(|| {
                         SqliteClientError::BadAccountData(
                             "Seed must be between 32 and 252 bytes in length.".to_owned(),
                         )
