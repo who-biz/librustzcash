@@ -286,15 +286,11 @@ impl UnifiedSpendingKey {
             }
         }
 
-        warn!("extsk({:?}), seed({:?})", extsk, seed);
 
         let sapling_key;
 
         if extsk.len() > 0 {
-//                 sapling_key = ExtendedSpendingKey::from_bytes(&key)?;
-
             sapling_key = sapling::ExtendedSpendingKey::from_bytes(&extsk).map_err(|_| DerivationError::Sapling)?;
-//            warn!("sapling_key({:?})", sapling_key);
         } else {
             sapling_key = sapling::spending_key(seed, _params.coin_type(), _account);
         }
