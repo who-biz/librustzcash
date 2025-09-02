@@ -8,7 +8,6 @@ use std::{
 use secp256k1::{Secp256k1};
 
 use tracing::{warn};
-
 use zcash_address::unified::{self, Container, Encoding, Typecode, Ufvk, Uivk};
 use zcash_protocol::consensus;
 use zip32::{AccountId, DiversifierIndex};
@@ -45,9 +44,10 @@ use orchard::{self, keys::Scope};
 #[cfg(feature = "sapling")]
 pub mod sapling {
     pub use sapling::zip32::{
-        DiversifiableFullViewingKey, ExtendedFullViewingKey, ExtendedSpendingKey,
+        DiversifiableFullViewingKey, ExtendedFullViewingKey, ExtendedSpendingKey
     };
     use zip32::{AccountId, ChildIndex};
+
 
     /// Derives the ZIP 32 [`ExtendedSpendingKey`] for a given coin type and account from the
     /// given seed.
@@ -68,7 +68,7 @@ pub mod sapling {
     /// [`ExtendedSpendingKey`]: sapling::zip32::ExtendedSpendingKey
     pub fn spending_key(seed: &[u8], coin_type: u32, account: AccountId) -> ExtendedSpendingKey {
         if seed.len() < 32 {
-            panic!("ZIP 32 seeds MUST be at least 32 bytes");
+            panic!("ZIP 32 seeds MUST be at least 32 bytes - in spending_key(), seed({:?})", seed);
         }
 
         ExtendedSpendingKey::from_path(
@@ -80,6 +80,41 @@ pub mod sapling {
             ],
         )
     }
+/*    pub fn spending_key_from_bytes(b: &[u8]) -> Result<ExtendedSpendingKey, DecodingError> {
+        if b.len() != 169 {
+            return Err(DecodingError::LengthInvalid {
+                expected: 169,
+                actual: b.len(),
+            });
+        }
+
+        let depth = b[0];
+
+        let mut parent_fvk_tag = FvkTag([0; 4]);
+        parent_fvk_tag.0[..].copy_from_slice(&b[1..5]);
+
+        let mut ci_bytes = [0u8; 4];
+        ci_bytes[..].copy_from_slice(&b[5..9]);
+        let child_index = KeyIndex::new(depth, u32::from_le_bytes(ci_bytes))
+            .ok_or(DecodingError::UnsupportedChildIndex)?;
+
+        let mut c = [0u8; 32];
+        c[..].copy_from_slice(&b[9..41]);
+
+        let expsk = ExpandedSpendingKey::from_bytes(&b[41..137])?;
+
+        let mut dk = DiversifierKey([0u8; 32]);
+        dk.0[..].copy_from_slice(&b[137..169]);
+
+        Ok(ExtendedSpendingKey {
+            depth,
+            parent_fvk_tag,
+            child_index,
+            chain_code: ChainCode::new(c),
+            expsk,
+            dk,
+        })
+    }*/
 }
 
 #[cfg(feature = "transparent-inputs")]
@@ -97,6 +132,8 @@ fn to_transparent_child_index(j: DiversifierIndex) -> Option<NonHardenedChildInd
 pub enum DerivationError {
     #[cfg(feature = "orchard")]
     Orchard(orchard::zip32::Error),
+    #[cfg(feature = "sapling")]
+    Sapling,
     #[cfg(feature = "transparent-inputs")]
     Transparent(secp256k1::Error),
     #[cfg(feature = "transparent-inputs")]
@@ -108,6 +145,8 @@ impl Display for DerivationError {
         match self {
             #[cfg(feature = "orchard")]
             DerivationError::Orchard(e) => write!(_f, "Orchard error: {}", e),
+            #[cfg(feature = "sapling")]
+            DerivationError::Sapling => write!(_f, "Sapling derivation error"),
             #[cfg(feature = "transparent-inputs")]
             DerivationError::Transparent(e) => write!(_f, "Transparent error: {}", e),
             #[cfg(feature = "transparent-inputs")]
@@ -219,15 +258,22 @@ impl UnifiedSpendingKey {
     pub fn from_seed<P: consensus::Parameters>(
         _params: &P,
         transparentkey: &[u8],
+        extsk: &[u8],
         seed: &[u8],
         _account: AccountId,
     ) -> Result<UnifiedSpendingKey, DerivationError> {
-        if seed.len() < 32 {
-            panic!("ZIP 32 seeds MUST be at least 32 bytes");
+        if seed.len() != 0 {
+            if seed.len() < 32 {
+                panic!("ZIP 32 seeds MUST be at least 32 bytes - in from_seed(), seed({:?})", seed);
+            }
         }
 
         if transparentkey.len() != 33 && transparentkey.len() != 0 {
            panic!("transparentkey MUST be exactly 33 bytes, key {:?}\n seed: {:?}", transparentkey, seed);
+        }
+
+        if extsk.len() > 0 && seed.len() > 0 {
+           panic!("Cannot use both an extsk and a seed in the same z-address derivation!");
         }
 
         #[cfg(feature = "transparent-inputs")]
@@ -240,12 +286,20 @@ impl UnifiedSpendingKey {
             }
         }
 
+
+        let sapling_key;
+
+        if extsk.len() > 0 {
+            sapling_key = sapling::ExtendedSpendingKey::from_bytes(&extsk).map_err(|_| DerivationError::Sapling)?;
+        } else {
+            sapling_key = sapling::spending_key(seed, _params.coin_type(), _account);
+        }
         UnifiedSpendingKey::from_checked_parts(
             #[cfg(feature = "transparent-inputs")]
             transparent_key,
             //.map_err(|e: secp256k1::Error| DerivationError::Transparent(e))?,
             #[cfg(feature = "sapling")]
-            sapling::spending_key(seed, _params.coin_type(), _account),
+            sapling_key,
             #[cfg(feature = "orchard")]
             orchard::keys::SpendingKey::from_zip32_seed(seed, _params.coin_type(), _account)
                 .map_err(DerivationError::Orchard)?,
@@ -649,6 +703,12 @@ impl From<hdwallet::error::Error> for DerivationError {
     }
 }
 
+/*impl From<sapling::DecodingError> for DerivationError {
+    fn from(e: sapling::DecodingError) -> Self {
+        DerivationError::Sapling(e)
+    }
+}*/
+
 #[cfg(feature = "transparent-inputs")]
 impl From<secp256k1::Error> for DerivationError {
     fn from(e: secp256k1::Error) -> Self {
@@ -793,7 +853,7 @@ impl UnifiedFullViewingKey {
                 unified::Fvk::P2pkh(data) => legacy::AccountPubKey::deserialize(data)
                     .map_err(|_| DecodingError::KeyDataInvalid(Typecode::P2pkh))
                     .map(|tfvk| {
-                       warn!("tfvk: {:?}", tfvk.serialize());
+                       //warn!("tfvk: {:?}", tfvk.serialize());
                         transparent = Some(tfvk);
                         None
                     })
@@ -1102,7 +1162,7 @@ impl UnifiedIncomingViewingKey {
             self.transparent
                 .as_ref()
                 .map(|tivk| { 
-                       warn!("tivk: {:?}", tivk.serialize());
+                       //warn!("tivk: {:?}", tivk.serialize());
                         tivk.serialize().try_into().unwrap()
                       }
                  )
@@ -1201,7 +1261,7 @@ impl UnifiedIncomingViewingKey {
                 //        .map_err(|_| AddressGenerationError::InvalidTransparentChildIndex(_j))?,
                 //);
 
-                warn!("zcash_keys::address::tivk {:?}", tivk.serialize());
+                //warn!("zcash_keys::address::tivk {:?}", tivk.serialize());
                 transparent = Some(tivk.derive_legacy_address());
             } else {
                 return Err(AddressGenerationError::KeyNotAvailable(Typecode::P2pkh));
@@ -1291,6 +1351,7 @@ pub mod testing {
                         UnifiedSpendingKey::from_seed(
                             &params,
                             &transparentkey,
+                            &[],
                             &seed,
                             AccountId::try_from(account & ((1 << 31) - 1)).unwrap(),
                         )

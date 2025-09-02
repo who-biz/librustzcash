@@ -739,6 +739,7 @@ pub trait WalletRead {
         &self,
         account_id: Self::AccountId,
         transparentkey: &SecretVec<u8>,
+        extsk: &SecretVec<u8>,
         seed: &SecretVec<u8>,
     ) -> Result<bool, Self::Error>;
 
@@ -750,6 +751,7 @@ pub trait WalletRead {
     fn seed_relevance_to_derived_accounts(
         &self,
         transparentkey: &SecretVec<u8>,
+        extsk: &SecretVec<u8>,
         seed: &SecretVec<u8>,
     ) -> Result<SeedRelevance<Self::AccountId>, Self::Error>;
 
@@ -1467,6 +1469,7 @@ pub trait WalletWrite: WalletRead {
     fn create_account(
         &mut self,
         transparentkey: &SecretVec<u8>,
+        extsk: &SecretVec<u8>,
         seed: &SecretVec<u8>,
         birthday: &AccountBirthday,
     ) -> Result<(Self::AccountId, UnifiedSpendingKey), Self::Error>;
@@ -1727,6 +1730,7 @@ pub mod testing {
             &self,
             _account_id: Self::AccountId,
             _transparentkey: &SecretVec<u8>,
+            _extsk: &SecretVec<u8>,
             _seed: &SecretVec<u8>,
         ) -> Result<bool, Self::Error> {
             Ok(false)
@@ -1735,6 +1739,7 @@ pub mod testing {
         fn seed_relevance_to_derived_accounts(
             &self,
             _transparentkey: &SecretVec<u8>,
+            _extsk: &SecretVec<u8>,
             _seed: &SecretVec<u8>,
         ) -> Result<SeedRelevance<Self::AccountId>, Self::Error> {
             Ok(SeedRelevance::NoAccounts)
@@ -1875,11 +1880,12 @@ pub mod testing {
         fn create_account(
             &mut self,
             transparentkey: &SecretVec<u8>,
+            extsk: &SecretVec<u8>,
             seed: &SecretVec<u8>,
             _birthday: &AccountBirthday,
         ) -> Result<(Self::AccountId, UnifiedSpendingKey), Self::Error> {
             let account = zip32::AccountId::ZERO;
-            UnifiedSpendingKey::from_seed(&self.network, transparentkey.expose_secret(), seed.expose_secret(), account)
+            UnifiedSpendingKey::from_seed(&self.network, transparentkey.expose_secret(), extsk.expose_secret(), seed.expose_secret(), account)
                 .map(|k| (u32::from(account), k))
                 .map_err(|_| ())
         }

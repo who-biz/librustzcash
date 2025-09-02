@@ -1,4 +1,5 @@
-//! Functions for initializing the various databases.
+//! Functions for initializing the various databases.&ext
+
 
 use std::fmt;
 use std::rc::Rc;
@@ -263,6 +264,7 @@ fn sqlite_client_error_to_wallet_migration_error(e: SqliteClientError) -> Wallet
 pub fn init_wallet_db<P: consensus::Parameters + 'static>(
     wdb: &mut WalletDb<rusqlite::Connection, P>,
     transparentkey: Option<SecretVec<u8>>,
+    extsk: Option<SecretVec<u8>>,
     seed: Option<SecretVec<u8>>,
 ) -> Result<(), MigratorError<WalletMigrationError>> {
 
@@ -271,17 +273,19 @@ pub fn init_wallet_db<P: consensus::Parameters + 'static>(
         Config::default().with_max_level(LevelFilter::Trace),
     );
 
-    init_wallet_db_internal(wdb, transparentkey, seed, &[], true)
+    init_wallet_db_internal(wdb, transparentkey, extsk, seed, &[], true)
 }
 
 fn init_wallet_db_internal<P: consensus::Parameters + 'static>(
     wdb: &mut WalletDb<rusqlite::Connection, P>,
     transparentkey: Option<SecretVec<u8>>,
+    extsk: Option<SecretVec<u8>>,
     seed: Option<SecretVec<u8>>,
     target_migrations: &[Uuid],
     verify_seed_relevance: bool,
 ) -> Result<(), MigratorError<WalletMigrationError>> {
     let transparentkey = transparentkey.map(Rc::new);
+    let extsk = extsk.map(Rc::new);
     let seed = seed.map(Rc::new);
 
     // Turn off foreign keys, and ensure that table replacement/modification
@@ -319,7 +323,7 @@ fn init_wallet_db_internal<P: consensus::Parameters + 'static>(
         if let Some(seed) = seed {
             if let Some(transparentkey) = transparentkey {
               match wdb
-                  .seed_relevance_to_derived_accounts(&transparentkey, &seed)
+                  .seed_relevance_to_derived_accounts(&transparentkey, &extsk.unwrap(), &seed)
                   .map_err(sqlite_client_error_to_wallet_migration_error)?
               {
                   SeedRelevance::Relevant { .. } => (),

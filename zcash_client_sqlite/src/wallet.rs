@@ -255,22 +255,25 @@ impl ViewingKey {
 pub(crate) fn seed_matches_derived_account<P: consensus::Parameters>(
     params: &P,
     transparentkey: &SecretVec<u8>,
+    extsk: &SecretVec<u8>,
     seed: &SecretVec<u8>,
     seed_fingerprint: &SeedFingerprint,
     account_index: zip32::AccountId,
     uivk: &UnifiedIncomingViewingKey,
 ) -> Result<bool, SqliteClientError> {
-    let seed_fingerprint_match =
+    let mut seed_fingerprint_match = false;
+    if seed.expose_secret().len() > 0 {
+        seed_fingerprint_match =
         &SeedFingerprint::from_seed(seed.expose_secret()).ok_or_else(|| {
             SqliteClientError::BadAccountData(
                 "Seed must be between 32 and 252 bytes in length.".to_owned(),
             )
         })? == seed_fingerprint;
-
+    }
     // Keys are not comparable with `Eq`, but addresses are, so we derive what should
     // be equivalent addresses for each key and use those to check for key equality.
     let uivk_match =
-        match UnifiedSpendingKey::from_seed(params, &transparentkey.expose_secret()[..], &seed.expose_secret()[..], account_index) {
+        match UnifiedSpendingKey::from_seed(params, &transparentkey.expose_secret()[..], &extsk.expose_secret()[..], &seed.expose_secret()[..], account_index) {
             // If we can't derive a USK from the given seed with the account's ZIP 32
             // account index, then we immediately know the UIVK won't match because wallet
             // accounts are required to have a known UIVK.
@@ -285,14 +288,17 @@ pub(crate) fn seed_matches_derived_account<P: consensus::Parameters>(
                 },
             )?,
         };
-
-    if seed_fingerprint_match != uivk_match {
-        // If these mismatch, it suggests database corruption.
-        Err(SqliteClientError::CorruptedData(format!(
-            "Seed fingerprint match: {seed_fingerprint_match}, uivk match: {uivk_match}"
-        )))
+    if seed.expose_secret().len() > 0 {
+        if seed_fingerprint_match != uivk_match {
+            // If these mismatch, it suggests database corruption.
+            Err(SqliteClientError::CorruptedData(format!(
+                "Seed fingerprint match: {seed_fingerprint_match}, uivk match: {uivk_match}"
+            )))    
+        } else {
+            Ok(seed_fingerprint_match && uivk_match)
+        }
     } else {
-        Ok(seed_fingerprint_match && uivk_match)
+        Ok(uivk_match)
     }
 }
 
@@ -743,7 +749,7 @@ pub(crate) fn get_unified_full_viewing_keys<P: consensus::Parameters>(
     // Fetch the UnifiedFullViewingKeys we are tracking
     let mut stmt_fetch_accounts = conn.prepare("SELECT id, ufvk FROM accounts")?;
 
-    warn!("get_unified_full_viewing_keys called!");
+    //warn!("get_unified_full_viewing_keys called!");
 
     let rows = stmt_fetch_accounts.query_map([], |row| {
         let acct: u32 = row.get(0)?;
@@ -779,7 +785,7 @@ pub(crate) fn get_account_for_ufvk<P: consensus::Parameters>(
     #[cfg(not(feature = "transparent-inputs"))]
     let transparent_item: Option<Vec<u8>> = None;
 
-    warn!("get_account_for_ufvk called!");
+    //warn!("get_account_for_ufvk called!");
 
     let mut stmt = conn.prepare(
         "SELECT id, account_kind, hd_seed_fingerprint, hd_account_index, ufvk
@@ -853,7 +859,7 @@ pub(crate) fn get_derived_account<P: consensus::Parameters>(
           AND hd_account_index = :account_id",
     )?;
 
-    warn!("get_derived_account called!");
+    //warn!("get_derived_account called!");
 
     let mut accounts = stmt.query_and_then::<_, SqliteClientError, _, _>(
         named_params![
@@ -1119,7 +1125,7 @@ pub(crate) fn get_wallet_summary<P: consensus::Parameters>(
         }
     };
 
-    warn!("wallet::get_wallet_summary called!");
+    //warn!("wallet::get_wallet_summary called!");
 
     let birthday_height =
         wallet_birthday(tx)?.expect("If a scan range exists, we know the wallet birthday.");
@@ -1135,7 +1141,7 @@ pub(crate) fn get_wallet_summary<P: consensus::Parameters>(
         chain_tip_height,
     )?;
 
-    warn!("fully_scanned_height({:?}, chain_tip_height({:?}), min_confirmations({:?})", fully_scanned_height, chain_tip_height, min_confirmations);
+    //warn!("fully_scanned_height({:?}, chain_tip_height({:?}), min_confirmations({:?})", fully_scanned_height, chain_tip_height, min_confirmations);
 
     #[cfg(feature = "orchard")]
     let orchard_scan_progress = progress.orchard_scan_progress(
@@ -1208,7 +1214,7 @@ pub(crate) fn get_wallet_summary<P: consensus::Parameters>(
 
         let any_spendable = is_any_spendable(tx, summary_height, table_prefix)?;
 
-        warn!(">>> summary_height({:?}), any_spendable({:?}", summary_height, any_spendable);
+        //warn!(">>> summary_height({:?}), any_spendable({:?}", summary_height, any_spendable);
 
         let mut stmt_select_notes = tx.prepare_cached(&format!(
             "SELECT n.account_id, n.value, n.is_change, scan_state.max_priority, t.block
@@ -1282,7 +1288,7 @@ pub(crate) fn get_wallet_summary<P: consensus::Parameters>(
                 },
             )?;
 
-            warn!(">>> max_priority_raw({:?}), max_priority({:?})", max_priority_raw, max_priority);
+            //warn!(">>> max_priority_raw({:?}), max_priority({:?})", max_priority_raw, max_priority);
 
             let received_height = row.get::<_, Option<u32>>(4)?.map(BlockHeight::from);
 
@@ -1304,7 +1310,7 @@ pub(crate) fn get_wallet_summary<P: consensus::Parameters>(
                 }
             };
 
-            warn!("spendable({:?}), change_pending_conf({:?}), value_pending_spendability({:?})", spendable_value, change_pending_confirmation, value_pending_spendability); 
+            //warn!("spendable({:?}), change_pending_conf({:?}), value_pending_spendability({:?})", spendable_value, change_pending_confirmation, value_pending_spendability); 
 
             if let Some(balances) = account_balances.get_mut(&account) {
                 with_pool_balance(
@@ -1692,7 +1698,7 @@ pub(crate) fn get_account<P: Parameters>(
         "#,
     )?;
 
-    warn!("get_account called!");
+    //warn!("get_account called!");
 
     let mut result = sql.query(named_params![":account_id": account_id.0])?;
     let row = result.next()?;
@@ -1752,7 +1758,7 @@ pub(crate) fn get_target_and_anchor_heights(
     conn: &rusqlite::Connection,
     min_confirmations: NonZeroU32,
 ) -> Result<Option<(BlockHeight, BlockHeight)>, rusqlite::Error> {
-    warn!("get_target_and_anchor_heights called!");
+    //warn!("get_target_and_anchor_heights called!");
     match scan_queue_extrema(conn)?.map(|range| *range.end()) {
         Some(chain_tip_height) => {
             let sapling_anchor_height = get_max_checkpointed_height(
@@ -1762,7 +1768,7 @@ pub(crate) fn get_target_and_anchor_heights(
                 min_confirmations,
             )?;
 
-            warn!("get_target_and_anchor_heights.bp1, sapling_anchor_height({:?})", sapling_anchor_height);
+            //warn!("get_target_and_anchor_heights.bp1, sapling_anchor_height({:?})", sapling_anchor_height);
             #[cfg(feature = "orchard")]
             let orchard_anchor_height = get_max_checkpointed_height(
                 conn,
@@ -1780,7 +1786,7 @@ pub(crate) fn get_target_and_anchor_heights(
                 .or(sapling_anchor_height)
                 .or(orchard_anchor_height);
 
-            warn!("get_target_and_anchor_heights.bp2, anchor_height({:?})", anchor_height);
+            //warn!("get_target_and_anchor_heights.bp2, anchor_height({:?})", anchor_height);
             Ok(anchor_height.map(|h| (chain_tip_height + 1, h)))
         }
         None => Ok(None),
@@ -1791,14 +1797,14 @@ fn parse_block_metadata<P: consensus::Parameters>(
     _params: &P,
     row: (BlockHeight, Vec<u8>, Option<u32>, Vec<u8>, Option<u32>),
 ) -> Result<BlockMetadata, SqliteClientError> {
-    warn!(">>> bp1");
+    //warn!(">>> bp1");
     let (block_height, hash_data, sapling_tree_size_opt, sapling_tree, _orchard_tree_size_opt) =
         row;
     let sapling_tree_size = sapling_tree_size_opt.map_or_else(|| {
         if sapling_tree == BLOCK_SAPLING_FRONTIER_ABSENT {
             Err(SqliteClientError::CorruptedData("One of either the Sapling tree size or the legacy Sapling commitment tree must be present.".to_owned()))
         } else {
-            warn!(">>> bp2");
+            //warn!(">>> bp2");
             // parse the legacy commitment tree data
             read_commitment_tree::<
                 ::sapling::Node,
@@ -1817,11 +1823,10 @@ fn parse_block_metadata<P: consensus::Parameters>(
         ))
     })?;
 
-    warn!(">>> bp3");
+    //warn!(">>> bp3");
     Ok(BlockMetadata::from_parts(
         block_height,
         block_hash,
-//        None,
         Some(sapling_tree_size),
         #[cfg(feature = "orchard")]
         if _params

@@ -72,6 +72,7 @@ use zcash_client_backend::{
     DecryptedOutput, PoolType, ShieldedProtocol, TransferType,
 };
 use zcash_keys::address::Address;
+use zcash_keys::keys::sapling::ExtendedSpendingKey;
 use zcash_primitives::{
     block::BlockHash,
     consensus::{self, BlockHeight},
@@ -328,6 +329,7 @@ impl<C: Borrow<rusqlite::Connection>, P: consensus::Parameters> WalletRead for W
         &self,
         account_id: Self::AccountId,
         transparentkey: &SecretVec<u8>,
+        extsk: &SecretVec<u8>,
         seed: &SecretVec<u8>,
     ) -> Result<bool, Self::Error> {
         if let Some(account) = self.get_account(account_id)? {
@@ -339,6 +341,7 @@ impl<C: Borrow<rusqlite::Connection>, P: consensus::Parameters> WalletRead for W
                 wallet::seed_matches_derived_account(
                     &self.params,
                     transparentkey,
+                    extsk,
                     seed,
                     &seed_fingerprint,
                     account_index,
@@ -356,6 +359,7 @@ impl<C: Borrow<rusqlite::Connection>, P: consensus::Parameters> WalletRead for W
     fn seed_relevance_to_derived_accounts(
         &self,
         transparentkey: &SecretVec<u8>,
+        extsk: &SecretVec<u8>,
         seed: &SecretVec<u8>,
     ) -> Result<SeedRelevance<Self::AccountId>, Self::Error> {
         let mut has_accounts = false;
@@ -380,6 +384,7 @@ impl<C: Borrow<rusqlite::Connection>, P: consensus::Parameters> WalletRead for W
                 if wallet::seed_matches_derived_account(
                     &self.params,
                     transparentkey,
+                    extsk,
                     seed,
                     &seed_fingerprint,
                     account_index,
@@ -547,29 +552,58 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
     fn create_account(
         &mut self,
         transparentkey: &SecretVec<u8>,
+        extsk: &SecretVec<u8>,
         seed: &SecretVec<u8>,
         birthday: &AccountBirthday,
     ) -> Result<(AccountId, UnifiedSpendingKey), Self::Error> {
         self.transactionally(|wdb| {
-            let seed_fingerprint =
-                SeedFingerprint::from_seed(seed.expose_secret()).ok_or_else(|| {
-                    SqliteClientError::BadAccountData(
-                        "Seed must be between 32 and 252 bytes in length.".to_owned(),
-                    )
-                })?;
-            let account_index = wallet::max_zip32_account_index(wdb.conn.0, &seed_fingerprint)?
-                .map(|a| a.next().ok_or(SqliteClientError::AccountIdOutOfRange))
-                .transpose()?
-                .unwrap_or(zip32::AccountId::ZERO);
 
-            let usk =
-                UnifiedSpendingKey::from_seed(&wdb.params, transparentkey.expose_secret(), seed.expose_secret(), account_index)
-                    .map_err(|_| SqliteClientError::KeyDerivationError(account_index))?;
+
+            if (extsk.expose_secret().len() != 0) && (extsk.expose_secret().len() != 169) {
+               panic!("extsk must have an exact length of 169 bytes!");
+               //throw error, we should only have one with data
+            }
+            let mut account_index = zip32::AccountId::ZERO;
+
+            let seed_fingerprint;
+            if seed.expose_secret().len() > 0 {
+                seed_fingerprint =
+                    SeedFingerprint::from_seed(seed.expose_secret()).ok_or_else(|| {
+                        SqliteClientError::BadAccountData(
+                            "Seed must be between 32 and 252 bytes in length.".to_owned(),
+                        )
+                    })?;
+                account_index = wallet::max_zip32_account_index(wdb.conn.0, &seed_fingerprint)?
+                    .map(|a| a.next().ok_or(SqliteClientError::AccountIdOutOfRange))
+                    .transpose()?
+                    .unwrap_or(zip32::AccountId::ZERO);
+              } else {
+                seed_fingerprint = 
+                    SeedFingerprint::from_seed(extsk.expose_secret()).ok_or_else(|| {
+                        SqliteClientError::BadAccountData(
+                            "Seed must be between 32 and 252 bytes in length.".to_owned(),
+                        )
+                    })?;
+              }
+
+//            let usk;
+            
+//            if (seed.expose_secret().len() > 0) {
+             let usk =
+                    UnifiedSpendingKey::from_seed(&wdb.params, transparentkey.expose_secret(), extsk.expose_secret(), seed.expose_secret(), account_index)
+                        .map_err(|_| SqliteClientError::KeyDerivationError(account_index))?;
+
+          //  } else if (extsk.expose_secret().len() > 0) {
+            //   let sapling_extsk = ExtendedSpendingKey::from_bytes(extsk.expose_secret());
+            //   usk = UnifiedSpendingKey::from_bytes(sapling_extsk?.to_bytes());
+//               usk = UnifiedSpendingKey::from_bytes(Era::Orchard, &extsk.expose_secret());
+//            }
+
             let ufvk = usk.to_unified_full_viewing_key();
 
             let mut account_id;
 
-            if transparentkey.expose_secret().len() != 32 {
+            if (transparentkey.expose_secret().len() != 32) || (extsk.expose_secret().len() != 169) {
                 account_id = wallet::add_account(
                     wdb.conn.0,
                     &wdb.params,
@@ -819,10 +853,10 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
             if let Some((start_positions, last_scanned_height)) =
                 start_positions.zip(last_scanned_height)
             {
-                warn!(">>> bp1 sapling tree");
+                //warn!(">>> bp1 sapling tree");
                 // Create subtrees from the note commitments in parallel.
 
-                // TODO: Biz: figure out if we can remove some of this too, with 'linearscanning' feature
+                // TODO: Biz: figure out if we can remove some of this, with 'linearscanning' feature
 
                 const CHUNK_SIZE: usize = 1024;
                 let sapling_subtrees = sapling_commitments
@@ -860,10 +894,8 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
                     .map(|res| (res.subtree, res.checkpoints))
                     .collect::<Vec<_>>();
 
-                warn!(">>> bp2 sapling tree");
+                //warn!(">>> bp2 sapling tree");
                 // Collect the complete set of Sapling checkpoints
-		// TODO: check if this sapling-based code should actually be behind this
-		// conditional compilation cfg macro
                 #[cfg(feature = "orchard")]
                 let sapling_checkpoint_positions: BTreeMap<BlockHeight, Position> =
                     sapling_subtrees
@@ -949,15 +981,15 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
                 //#[cfg(not(feature = "linearscanning"))]
                 // Update the Sapling note commitment tree with all newly read note commitments
                 {
-                    warn!(">>> bp3 sapling tree");
+                    //warn!(">>> bp3 sapling tree");
 
                     let mut sapling_subtrees_iter = sapling_subtrees.into_iter();
                     wdb.with_sapling_tree_mut::<_, _, Self::Error>(|sapling_tree| {
-                        warn!(
+                        /*warn!(
                             "Sapling initial tree size at {:?}: {:?}",
                             from_state.block_height(),
                             from_state.final_sapling_tree().tree_size()
-                        );
+                        );*/
                         sapling_tree.insert_frontier(
                             from_state.final_sapling_tree().clone(),
                             Retention::Checkpoint {
@@ -1060,7 +1092,7 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
                 )?;
             }
 
-            warn!(">>> bp4 sapling tree");
+            //warn!(">>> bp4 sapling tree");
             Ok(())
         })
     }

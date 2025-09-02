@@ -8,7 +8,7 @@ use secp256k1::{PublicKey, Secp256k1};
 use sha2::{Digest, Sha256};
 use subtle::{Choice, ConstantTimeEq};
 
-use tracing::warn;
+//use tracing::warn;
 
 use zcash_protocol::consensus::{self, NetworkConstants};
 use zcash_spec::PrfExpand;
@@ -121,7 +121,7 @@ impl AccountPrivKey {
         account: AccountId,
     ) -> Result<AccountPrivKey, hdwallet::error::Error> {
 
-	warn!(">>> legacy::AccountPrivKey::from_seed(), seed val: {:?}", seed);
+	//warn!(">>> legacy::AccountPrivKey::from_seed(), seed val: {:?}", seed);
 
         ExtendedPrivKey::with_seed(seed)?
             .derive_private_key(KeyIndex::hardened_from_normalize_index(44)?)?
@@ -134,7 +134,7 @@ impl AccountPrivKey {
     /// Returns true if chain code is populated with non-zero values
     pub fn is_bip44(&self) -> bool {
         let chain_code = &self.0.chain_code;
-	warn!("is_bip44: chain_code {:?}", chain_code);
+	//warn!("is_bip44: chain_code {:?}", chain_code);
 	let mut ret = false;
         for &byte in chain_code {
             if byte != 0 {
@@ -150,7 +150,7 @@ impl AccountPrivKey {
         _account: AccountId,
     ) -> Result<AccountPrivKey, hdwallet::error::Error> {
 
-        warn!(">>> legacy::AccountPrivKey::from_transparent_key(), tkey val: {:?}", transparent_key);
+        //warn!(">>> legacy::AccountPrivKey::from_transparent_key(), tkey val: {:?}", transparent_key);
 
         //TODO: check content of 33rd byte, removed due to compile error, and it not really being important
         // Verus does not support 0-flagged privkeys
@@ -174,7 +174,7 @@ impl AccountPrivKey {
     pub fn derive_legacy_secret_key(
         &self,
     ) -> secp256k1::SecretKey {
-        warn!("derive_legacy_secret_key {:?}", self.0.private_key);
+        //warn!("derive_legacy_secret_key {:?}", self.0.private_key);
         self.0.private_key
     }
 
@@ -186,10 +186,10 @@ impl AccountPrivKey {
             let secp = secp256k1::Secp256k1::new();
             let secret_key = secp256k1::SecretKey::from_slice(&self.0.serialize()[..32]).unwrap();
             let raw_pubkey = secp256k1::PublicKey::from_secret_key(&secp, &secret_key).serialize();
-            warn!("raw_secret {:?}\nraw_pubkey: {:?}",&secret_key.secret_bytes(),&raw_pubkey);
+            //warn!("raw_secret {:?}\nraw_pubkey: {:?}",&secret_key.secret_bytes(),&raw_pubkey);
             account_pubkey = AccountPubKey::deserialize_and_pad(&raw_pubkey).unwrap();
         }
-        warn!("to_account_pubkey: {:?}\nsecret_key {:?}", account_pubkey.serialize(), &self.0.serialize());
+        //warn!("to_account_pubkey: {:?}\nsecret_key {:?}", account_pubkey.serialize(), &self.0.serialize());
         account_pubkey
     }
 
@@ -212,7 +212,7 @@ impl AccountPrivKey {
         &self,
         child_index: NonHardenedChildIndex,
     ) -> Result<secp256k1::SecretKey, hdwallet::error::Error> {
-	warn!("derive_external_secret: {:?}", self);
+	//warn!("derive_external_secret: {:?}", self);
         self.derive_secret_key(zip32::Scope::External.into(), child_index)
     }
 
@@ -222,7 +222,7 @@ impl AccountPrivKey {
         &self,
         child_index: NonHardenedChildIndex,
     ) -> Result<secp256k1::SecretKey, hdwallet::error::Error> {
-	warn!("derive_internal_secret: {:?}", self);
+	//warn!("derive_internal_secret: {:?}", self);
         self.derive_secret_key(zip32::Scope::Internal.into(), child_index)
     }
 
@@ -256,7 +256,7 @@ impl AccountPubKey {
     /// Returns true if chain code is populated with non-zero values
     pub fn is_bip44(&self) -> bool {
         let chain_code = &self.0.chain_code;
-	warn!("pubkey_is_bip44: chain_code {:?}", chain_code);
+	//warn!("pubkey_is_bip44: chain_code {:?}", chain_code);
 	let mut ret = false;
         for &byte in chain_code {
             if byte != 0 {
@@ -270,7 +270,7 @@ impl AccountPubKey {
     /// `m/44'/<coin_type>'/<account>'/0`.
     pub fn derive_external_ivk(&self) -> Result<ExternalIvk, hdwallet::error::Error> {
         let account_key = AccountPubKey(self.0.clone());
-        warn!("derive_external_ivk: {:?}", self.0);
+        //warn!("derive_external_ivk: {:?}", self.0);
 	if account_key.is_bip44() {
             self.0
                 .derive_public_key(KeyIndex::Normal(0))
@@ -284,7 +284,7 @@ impl AccountPubKey {
     pub fn derive_ext_ivk_from_legacy_key(&self) -> ExternalIvk {
             let chain_code = [0; 32].to_vec();
             let public_key = self.0.public_key;
-            warn!("derive_ext_ivk_from_legacy: public_key {:?}",public_key.serialize());
+            //warn!("derive_ext_ivk_from_legacy: public_key {:?}",public_key.serialize());
 	    let fake_extended_pubkey = ExtendedPubKey { public_key, chain_code };
             ExternalIvk(fake_extended_pubkey)
     }
@@ -300,7 +300,7 @@ impl AccountPubKey {
     pub fn derive_int_ivk_from_legacy_key(&self) -> InternalIvk {
             let chain_code = [0; 32].to_vec();
             let public_key = self.0.public_key;
-            warn!("derive_int_ivk_from_legacy: public_key {:?}",public_key);
+            //warn!("derive_int_ivk_from_legacy: public_key {:?}",public_key);
 	    let fake_extended_pubkey = ExtendedPubKey { public_key, chain_code };
             InternalIvk(fake_extended_pubkey)
     }
@@ -346,7 +346,7 @@ impl AccountPubKey {
     pub fn deserialize_and_pad(data: &[u8; 33]) -> Result<Self, hdwallet::error::Error> {
         let chain_code = [0; 32].to_vec();
         let public_key = PublicKey::from_slice(data)?;
-        warn!("deserialize_and_pad: public_key: {:?}",public_key.serialize());
+        //warn!("deserialize_and_pad: public_key: {:?}",public_key.serialize());
         Ok(AccountPubKey(ExtendedPubKey {
             public_key,
             chain_code,
@@ -357,7 +357,7 @@ impl AccountPubKey {
 /// Derives the P2PKH transparent address corresponding to the given pubkey.
 #[deprecated(note = "This function will be removed from the public API in an upcoming refactor.")]
 pub fn pubkey_to_address(pubkey: &secp256k1::PublicKey) -> TransparentAddress {
-    warn!("pubkey_to_address::pubkey {:?}", pubkey.serialize());
+    //warn!("pubkey_to_address::pubkey {:?}", pubkey.serialize());
 //    let address = TransparentAddress::PublicKeyHash(
     //);
     let address = TransparentAddress::PublicKeyHash(
@@ -414,9 +414,9 @@ pub trait IncomingViewingKey: private::SealedChangeLevelKey + std::marker::Sized
 
         let address = pubkey_to_address(&fake_extkey.public_key);
 
-	warn!("fake_extkey {:?}", fake_extkey.serialize());
-	warn!("extendedpubkey.public_key {:?}", fake_extkey.public_key.serialize());
-	warn!("address {:?}", address);
+	//warn!("fake_extkey {:?}", fake_extkey.serialize());
+	//warn!("extendedpubkey.public_key {:?}", fake_extkey.public_key.serialize());
+	//warn!("address {:?}", address);
 	address
     }
 
@@ -475,7 +475,7 @@ impl private::SealedChangeLevelKey for ExternalIvk {
     fn from_compressed_pubkey(key: PublicKey) -> Self {
        let chain_code = [0, 32].to_vec();
        let pubkey_bytes = key.serialize();
-       warn!(">>>>> chain_code: {:?}, pubkey_bytes {:?}", chain_code, pubkey_bytes);
+       //warn!(">>>>> chain_code: {:?}, pubkey_bytes {:?}", chain_code, pubkey_bytes);
        let extended_pubkey = ExtendedPubKey { public_key: key, chain_code};
        ExternalIvk(extended_pubkey)
     }
@@ -505,7 +505,7 @@ impl private::SealedChangeLevelKey for InternalIvk {
     fn from_compressed_pubkey(key: PublicKey) -> Self {
        let chain_code = [0, 32].to_vec();
        let pubkey_bytes = key.serialize();
-       warn!(">>>>> chain_code: {:?}, pubkey_bytes {:?}", chain_code, pubkey_bytes);
+       //warn!(">>>>> chain_code: {:?}, pubkey_bytes {:?}", chain_code, pubkey_bytes);
        let extended_pubkey = ExtendedPubKey { public_key: key, chain_code};
        InternalIvk(extended_pubkey)
     }

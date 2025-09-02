@@ -139,6 +139,7 @@ impl<P: consensus::Parameters> RusqliteMigration for Migration<P> {
                       let usk = UnifiedSpendingKey::from_seed(
                           &self.params,
                           transparentkey.expose_secret(),
+                          &[],
                           seed.expose_secret(),
                           zip32::AccountId::try_from(account_index).map_err(|_| {
                               WalletMigrationError::CorruptedData("Bad account index".to_string())
