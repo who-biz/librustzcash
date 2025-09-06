@@ -149,10 +149,10 @@ fn internal_generate_symmetric_key_sender(
 // between two parties, identified by from_id` and `to_id
 pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
 
-        // determine the base spending key from either a seed or a provided key
+    // determine the base spending key from either a seed or a provided key
     let base_sk = if let Some(seed_hex) = params.seed {
 
-                // if a seed is provided, derive the account key using the hd_index
+        // if a seed is provided, derive the account key using the hd_index
         let seed_bytes = hex::decode(seed_hex)?;
         let master_sk = ExtendedSpendingKey::master(&seed_bytes);
         master_sk.derive_child(ChildIndex::hardened(params.hd_index))
@@ -161,31 +161,41 @@ pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
         // if a spending key is provided, decode and use it directly
         let sk_bytes = hex::decode(sk_hex)?;
         let sk_bytes_array: [u8; 169] = sk_bytes
-          .try_into()
-          .map_err(|_| anyhow!("Invalid spending key length"))?;
+         .try_into()
+         .map_err(|_| anyhow!("Invalid spending key length"))?;
         ExtendedSpendingKey::from_bytes(&sk_bytes_array)
-          .map_err(|_| anyhow!("Failed to parse spending key"))?
+         .map_err(|_| anyhow!("Failed to parse spending key"))?
     } else {
         return Err(anyhow!("Must provide 'seed' or 'spendingKey'"));
     };
 
-    // decode id strings into bytes
-    let from_id_bytes = hex::decode(params.from_id)?;
-    let to_id_bytes = hex::decode(params.to_id)?;
-
-    // hash the derived base key with the fromid and toid using sha256
     let mut hasher = Sha256::default();
     let mut base_sk_bytes = Vec::new();
     base_sk.write(&mut base_sk_bytes)?;
+    
+    // hash the base spending key first
     hasher.update(&base_sk_bytes);
-    hasher.update(from_id_bytes);
-    hasher.update(to_id_bytes);
 
-    // here is our unique, deterministic seed for the communication channel;
+    // handle the optional from_id
+    if let Some(id_hex) = params.from_id {
+        let from_id_bytes = hex::decode(id_hex)?;
+        hasher.update(from_id_bytes);
+    } else {
+        // if from_id is null, hash a single zero byte, matching the daemon logic
+        hasher.update([0u8]);
+    }
+
+    // handle the optional to_id
+    if let Some(id_hex) = params.to_id {
+        let to_id_bytes = hex::decode(id_hex)?;
+        hasher.update(to_id_bytes);
+    }
+
+    // here is our unique, deterministic seed for the communication channel
     let channel_seed: [u8; 32] = hasher.finalize().into();
 
     // use the new channel seed to derive the final key for this channel
-    // using the `encryption_index`
+    // using the encryption_index
     let channel_master_sk = ExtendedSpendingKey::master(&channel_seed);
     let final_sk = channel_master_sk.derive_child(ChildIndex::hardened(params.encryption_index));
 
@@ -209,10 +219,8 @@ pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
         },
     };
 
-
     Ok(channel_keys)
 }
-
 // generates a standard BIP-44 derived spending key from a seed.
 pub fn generate_spending_key(seed_hex: String, hd_index: u32) -> Result<String> {
     let seed_bytes = hex::decode(seed_hex)?;
