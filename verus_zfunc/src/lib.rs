@@ -37,8 +37,8 @@ pub struct RpcParams {
     pub spending_key: Option<String>,
     pub hd_index: u32,
     pub encryption_index: u32,
-    pub from_id: String,
-    pub to_id: String,
+    pub from_id: Option<String>,
+    pub to_id: Option<String>,
     pub return_secret: bool,
 }
 
