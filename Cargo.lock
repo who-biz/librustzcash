@@ -2905,6 +2905,7 @@ name = "verus_zfunc"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bech32",
  "blake2b_simd",
  "chacha20poly1305",
  "getrandom 0.2.16",
@@ -2913,9 +2914,11 @@ dependencies = [
  "orchard",
  "rand",
  "rand_core",
+ "ripemd",
  "sapling-crypto",
  "secrecy",
  "sha2",
+ "zcash_address",
  "zcash_keys",
  "zcash_note_encryption",
  "zcash_primitives",
