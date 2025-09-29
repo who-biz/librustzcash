@@ -9,7 +9,7 @@ use sapling::{
     keys::SaplingIvk,
     note_encryption::{PreparedIncomingViewingKey, SaplingDomain},
     value::NoteValue,
-    zip32::{DiversifiableFullViewingKey, ExtendedSpendingKey},
+    zip32::{DiversifiableFullViewingKey, ExtendedSpendingKey, ExtendedFullViewingKey},
     Note, Rseed,
 };
 use zcash_keys::address::Address;
@@ -19,6 +19,34 @@ use zcash_primitives::{
     zip32::{ChildIndex, Scope},
 };
 use blake2b_simd::{Hash as Blake2bHash};
+use bech32::{self, ToBase32, Variant};
+
+mod key_encoding {
+        use super::*;
+        const FVK_PREFIX: &str = "zxviews";
+        const SK_PREFIX: &str = "secret-extended-key-main";
+
+    pub fn encode_xfvk(xfvk: &ExtendedFullViewingKey) -> Result<String, anyhow::Error> {
+        let mut serialized = Vec::with_capacity(169);
+
+        // This is the correct serialization order according to ZIP 32
+        serialized.push(xfvk.depth);
+        serialized.extend_from_slice(&xfvk.parent_fvk_tag.0);
+        serialized.extend_from_slice(&xfvk.child_index.index().to_le_bytes());
+        serialized.extend_from_slice(&xfvk.chain_code.0);
+        serialized.extend_from_slice(&xfvk.fvk.to_bytes());
+        serialized.extend_from_slice(&xfvk.dk.0);
+
+        bech32::encode(FVK_PREFIX, serialized.to_base32(), bech32::Variant::Bech32)
+            .map_err(|e| anyhow::anyhow!("Bech32 encoding failed: {}", e))
+    }
+
+    pub fn encode_sk(sk: &ExtendedSpendingKey) -> Result<String, anyhow::Error> {
+        let bytes = sk.to_bytes();
+        Ok(bech32::encode(SK_PREFIX, bytes.to_base32(), Variant::Bech32)?)
+    }
+
+}
 
 struct DummyRng;
 impl RngCore for DummyRng {
@@ -255,7 +283,13 @@ pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
     let channel_purpose = channel_master_sk.derive_child(ChildIndex::hardened(32));
     let channel_coin = channel_purpose.derive_child(ChildIndex::hardened(133)); // use same coin type as above
     let final_sk = channel_coin.derive_child(ChildIndex::hardened(params.encryption_index));
+    
+    // derive ExtendedFullViewingKey from the final spending key
+    let xfvk = final_sk.to_extended_full_viewing_key();
 
+    // bech32 encode it
+    let fvk_bech = key_encoding::encode_xfvk(&xfvk)?;
+    
     // get the view-only key (dfvk) from the final spending key
     let dfvk = final_sk.to_diversifiable_full_viewing_key();
 
@@ -269,11 +303,9 @@ pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
     // prepare the final address and fvk in the channelkeys struct to be returned
     let channel_keys = ChannelKeys {
         address: addr.encode(&network),
-        fvk: hex::encode(dfvk.to_bytes()),
+        fvk: fvk_bech,
         spending_key: if params.return_secret {
-            let mut sk_bytes = Vec::new();
-            final_sk.write(&mut sk_bytes)?;
-            Some(hex::encode(sk_bytes))
+            Some(key_encoding::encode_sk(&final_sk)?) 
         } else {
             None
         },

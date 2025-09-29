@@ -27,6 +27,7 @@ sha2 = "0.10.8"
 anyhow = "1.0"
 bech32 = "0.9"
 ripemd = "0.1"
+group = "0.13.0"
 
 
 
@@ -35,5 +36,4 @@ zcash_note_encryption = { workspace = true }
 zcash_primitives = { workspace = true }
 orchard = { workspace = true, optional = true }
 sapling = { workspace = true, package = "sapling-crypto" }
-zcash_address = { path = "../components/zcash_address" }
 

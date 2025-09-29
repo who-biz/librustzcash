@@ -15,19 +15,17 @@ fn main() {
         return_secret: true,
     };
 
+    println!("\n=== Test 1 Results (with fromId) ===");
     match z_getencryptionaddress(params_simple) {
         Ok(channel_keys) => {
-            let daemon_address = "zs120e9xq89awhmvscegn9ezst7x9vt7asanwav2vaxwmlhum23peqjsrqnr6mx2lg7hmfmgy9psdy";
-            println!("\n=== Test Results ===");
-            println!("Address:        {}", channel_keys.address);
-            println!("Daemon Address: {}", daemon_address);
-            println!("Match:          {}", channel_keys.address == daemon_address);
-
-            println!("FVK: {}", channel_keys.fvk);
-            println!("IVK: {}", channel_keys.ivk.unwrap_or_default() )
+            println!("Address:      {}", channel_keys.address);
+            println!("FVK:          {}", channel_keys.fvk);
+            println!("IVK:          {}", channel_keys.ivk.unwrap_or_else(|| "Not returned".to_string()));
+            println!("Spending Key: {}", channel_keys.spending_key.unwrap_or_else(|| "Not returned".to_string()));
         }
-        Err(e) => println!("Error: {}", e),
+        Err(e) => println!("Error in Test 1: {}", e),
     }
+
 
      let params_no_ids = RpcParams {
         seed: Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string()),
@@ -39,14 +37,13 @@ fn main() {
         return_secret: true,
     };
 
+     println!("\n=== Test 2 Results (no IDs) ===");
     match z_getencryptionaddress(params_no_ids) {
         Ok(channel_keys) => {
-            println!("\n=== Test 2 Results (no IDs) ===");
-            println!("Address:        {}", channel_keys.address);
-            println!("FVK:            {}", channel_keys.fvk);
-            if let Some(sk) = channel_keys.spending_key {
-                println!("Spending Key:   {}", sk);
-            }
+            println!("Address:      {}", channel_keys.address);
+            println!("FVK:          {}", channel_keys.fvk);
+            println!("IVK:          {}", channel_keys.ivk.unwrap_or_else(|| "Not returned".to_string()));
+            println!("Spending Key: {}", channel_keys.spending_key.unwrap_or_else(|| "Not returned".to_string()));
         }
         Err(e) => println!("Error in Test 2: {}", e),
     }
