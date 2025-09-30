@@ -74,6 +74,8 @@ pub struct RpcParams {
 pub struct ChannelKeys {
     pub address: String,
     pub fvk: String,
+    pub fvk_hex: String,      // hex encoded XFVK
+    pub dfvk_hex: String,     // hex encoded DDFVK
     pub spending_key: Option<String>,
     pub ivk: Option<String>
 }
@@ -304,6 +306,8 @@ pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
     let channel_keys = ChannelKeys {
         address: addr.encode(&network),
         fvk: fvk_bech,
+        fvk_hex: key_encoding::encode_xfvk(&xfvk)?,
+        dfvk_hex: hex::encode(dfvk_bytes),
         spending_key: if params.return_secret {
             Some(key_encoding::encode_sk(&final_sk)?) 
         } else {
