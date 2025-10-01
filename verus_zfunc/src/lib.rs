@@ -300,14 +300,16 @@ pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
     let addr = Address::from(payment_address);
 
     let ivk = dfvk.to_ivk(Scope::External);
-
+    
+    let mut xfvk_bytes = Vec::with_capacity(169);
+    xfvk.write(&mut xfvk_bytes)?;
 
     // prepare the final address and fvk in the channelkeys struct to be returned
     let channel_keys = ChannelKeys {
         address: addr.encode(&network),
         fvk: fvk_bech,
-        fvk_hex: key_encoding::encode_xfvk(&xfvk)?,
-        dfvk_hex: hex::encode(dfvk_bytes),
+        fvk_hex: hex::encode(xfvk_bytes),        
+        dfvk_hex: hex::encode(dfvk.to_bytes()),
         spending_key: if params.return_secret {
             Some(key_encoding::encode_sk(&final_sk)?) 
         } else {
