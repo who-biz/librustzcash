@@ -1,14 +1,7 @@
-//! Functions for initializing the various databases.&ext
-
+//! Functions for initializing the various databases.
 
 use std::fmt;
 use std::rc::Rc;
-
-#[cfg(target_os = "android")]
-use log::LevelFilter;
-
-#[cfg(target_os = "android")]
-use android_logger::Config;
 
 use schemer::{Migrator, MigratorError};
 use schemer_rusqlite::RusqliteAdapter;
@@ -267,12 +260,6 @@ pub fn init_wallet_db<P: consensus::Parameters + 'static>(
     extsk: Option<SecretVec<u8>>,
     seed: Option<SecretVec<u8>>,
 ) -> Result<(), MigratorError<WalletMigrationError>> {
-
-    #[cfg(target_os = "android")]
-    android_logger::init_once(
-        Config::default().with_max_level(LevelFilter::Trace),
-    );
-
     init_wallet_db_internal(wdb, transparentkey, extsk, seed, &[], true)
 }
 
