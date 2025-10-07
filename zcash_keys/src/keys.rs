@@ -7,7 +7,6 @@ use std::{
 #[cfg(feature = "transparent-inputs")]
 use secp256k1::{Secp256k1};
 
-use tracing::{warn};
 use zcash_address::unified::{self, Container, Encoding, Typecode, Ufvk, Uivk};
 use zcash_protocol::consensus;
 use zip32::{AccountId, DiversifierIndex};
@@ -1081,7 +1080,6 @@ impl UnifiedIncomingViewingKey {
             self.transparent
                 .as_ref()
                 .map(|tivk| { 
-                       //warn!("tivk: {:?}", tivk.serialize());
                         tivk.serialize().try_into().unwrap()
                       }
                  )
