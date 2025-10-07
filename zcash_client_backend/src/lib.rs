@@ -86,4 +86,3 @@ pub use zcash_protocol::{PoolType, ShieldedProtocol};
 #[cfg(test)]
 #[macro_use]
 extern crate assert_matches;
-

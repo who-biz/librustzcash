@@ -31,7 +31,6 @@ pub enum Fvk {
     /// the BIP 44 derivation path as the "transparent viewing key"; all addresses derived
     /// from this node use non-hardened derivation, and can thus be derived just from this
     /// pruned extended public key.
-
     P2pkh([u8; 65]),
 
     Unknown {

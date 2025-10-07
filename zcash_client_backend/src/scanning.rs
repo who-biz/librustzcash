@@ -12,7 +12,7 @@ use sapling::{
 };
 use subtle::{ConditionallySelectable, ConstantTimeEq, CtOption};
 
-use tracing::{debug/*, trace, warn*/};
+use tracing::{debug, trace};
 use zcash_keys::keys::UnifiedFullViewingKey;
 use zcash_note_encryption::{batch, BatchDomain, Domain, ShieldedOutput, COMPACT_NOTE_SIZE};
 use zcash_primitives::{
@@ -693,19 +693,7 @@ where
         return Err(scan_error);
     }
 
-    //warn!("Block continuity okay at {:?}", block.height());
-
-    //warn!(">>> block output: ({:?})",block);
-    //warn!(">>>>>>>>>>>>>>>> test test test");
-
-    let sapling_output_count: u32 = block
-	                            .vtx
-				     .iter()
-		                    .map(|tx| tx.outputs.len())
-                                    .sum::<usize>()
-                                    .try_into()
-                                    .expect("Sapling output count cannot exceed a u32");
-				//warn!(">>>>> sapling output count: {:?}", sapling_output_count);
+    trace!("Block continuity okay at {:?}", block.height());
 
     let cur_height = block.height();
     let cur_hash = block.hash();
@@ -721,32 +709,23 @@ where
                         params
                             .activation_height(NetworkUpgrade::Sapling)
                             .map_or_else(
-                                || { /*warn!("bp0");*/ Ok(0) },
+                                || Ok(0),
                                 |sapling_activation| {
                                     if cur_height < sapling_activation {
-					//warn!("bp1");
                                         Ok(0)
                                     } else {
-					//warn!(">>> bp 2: block output: ({:?})",block);
-	                        let sapling_output_count: u32 = block
-	                            .vtx
-				     .iter()
-		                    .map(|tx| tx.outputs.len())
-                                     .sum::<usize>()
-                                    .try_into()
-                                    .expect("Sapling output count cannot exceed a u32");
-				//warn!(">>>>> bp2: sapling output count: {:?}", sapling_output_count);
-					Ok(sapling_output_count)
-                                       // Err(ScanError::TreeSizeUnknown {
-                                       //     protocol: ShieldedProtocol::Sapling,
-                                       //     at_height: cur_height,
-                                       // })
+                                        let sapling_output_count: u32 = block.vtx.iter().map(|tx| tx.outputs.len()).sum::<usize>().try_into()
+                                            .expect("Sapling output count cannot exceed a u32");
+                                        Ok(sapling_output_count)
+                                        /*Err(ScanError::TreeSizeUnknown {
+                                             protocol: ShieldedProtocol::Sapling,
+                                             at_height: cur_height,
+                                        })*/
                                     }
-                                }//, { warn!("bp3"); sapling_output_count}
+                                },
                             )
                     },
                     |m| {
-//			warn!("bp3");
                         let sapling_output_count: u32 = block
                             .vtx
                             .iter()
@@ -754,7 +733,6 @@ where
                             .sum::<usize>()
                             .try_into()
                             .expect("Sapling output count cannot exceed a u32");
-//			warn!(">>>>> sapling output count: {:?}", sapling_output_count);
 
                         // The default for m.sapling_commitment_tree_size is zero, so we need to check
                         // that the subtraction will not underflow; if it would do so, we were given
@@ -776,8 +754,6 @@ where
             .iter()
             .map(|tx| u32::try_from(tx.outputs.len()).unwrap())
             .sum::<u32>();
-
-//    warn!("sapling_final_tree_size {:?}", sapling_final_tree_size);
 
     #[cfg(feature = "orchard")]
     let mut orchard_commitment_tree_size = prior_block_metadata
@@ -832,7 +808,6 @@ where
             .map(|tx| u32::try_from(tx.actions.len()).unwrap())
             .sum::<u32>();
 
-  //  warn!("bp5");
     let mut wtxs: Vec<WalletTx<AccountId>> = vec![];
     let mut sapling_nullifier_map = Vec::with_capacity(block.vtx.len());
     let mut sapling_note_commitments: Vec<(sapling::Node, Retention<BlockHeight>)> = vec![];
@@ -1084,8 +1059,6 @@ fn find_received<
     Vec<WalletOutput<D::Note, Nf, AccountId>>,
     Vec<(NoteCommitment, Retention<BlockHeight>)>,
 ) {
-//    warn!("bp6");
-
     // Check for incoming notes while incrementing tree and witnesses
     let (decrypted_opts, decrypted_len) = if let Some(collect_results) = batch_results {
         let mut decrypted = collect_results(txid);

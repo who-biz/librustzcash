@@ -16,7 +16,7 @@ members = [
 
 [workspace.package]
 edition = "2021"
-rust-version = "1.79.0"
+rust-version = "1.81.0"
 repository = "https://github.com/zcash/librustzcash"
 license = "MIT OR Apache-2.0"
 categories = ["cryptography::cryptocurrencies"]
@@ -120,6 +120,3 @@ zip32 = "0.1.1"
 lto = true
 panic = 'abort'
 codegen-units = 1
-
-#[patch.crates-io]
-#sapling-crypto = { git = "https://github.com/who-biz/sapling-crypto", branch = "spendkey-import" }
