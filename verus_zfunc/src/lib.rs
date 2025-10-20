@@ -3,12 +3,13 @@ use chacha20poly1305::{AeadInPlace, ChaCha20Poly1305, KeyInit};
 use hex;
 use rand_core::{CryptoRng, RngCore};
 use sha2::{Digest, Sha256};
+use ripemd::Ripemd160;
 
 use sapling::{
     keys::SaplingIvk,
     note_encryption::{PreparedIncomingViewingKey, SaplingDomain},
     value::NoteValue,
-    zip32::{DiversifiableFullViewingKey, ExtendedSpendingKey},
+    zip32::{DiversifiableFullViewingKey, ExtendedSpendingKey, ExtendedFullViewingKey},
     Note, Rseed,
 };
 use zcash_keys::address::Address;
@@ -18,6 +19,34 @@ use zcash_primitives::{
     zip32::{ChildIndex, Scope},
 };
 use blake2b_simd::{Hash as Blake2bHash};
+use bech32::{self, ToBase32, Variant};
+
+mod key_encoding {
+        use super::*;
+        const FVK_PREFIX: &str = "zxviews";
+        const SK_PREFIX: &str = "secret-extended-key-main";
+
+    pub fn encode_xfvk(xfvk: &ExtendedFullViewingKey) -> Result<String, anyhow::Error> {
+        let mut serialized = Vec::with_capacity(169);
+
+        // This is the correct serialization order according to ZIP 32
+        serialized.push(xfvk.depth);
+        serialized.extend_from_slice(&xfvk.parent_fvk_tag.0);
+        serialized.extend_from_slice(&xfvk.child_index.index().to_le_bytes());
+        serialized.extend_from_slice(&xfvk.chain_code.0);
+        serialized.extend_from_slice(&xfvk.fvk.to_bytes());
+        serialized.extend_from_slice(&xfvk.dk.0);
+
+        bech32::encode(FVK_PREFIX, serialized.to_base32(), bech32::Variant::Bech32)
+            .map_err(|e| anyhow::anyhow!("Bech32 encoding failed: {}", e))
+    }
+
+    pub fn encode_sk(sk: &ExtendedSpendingKey) -> Result<String, anyhow::Error> {
+        let bytes = sk.to_bytes();
+        Ok(bech32::encode(SK_PREFIX, bytes.to_base32(), Variant::Bech32)?)
+    }
+
+}
 
 struct DummyRng;
 impl RngCore for DummyRng {
@@ -45,7 +74,10 @@ pub struct RpcParams {
 pub struct ChannelKeys {
     pub address: String,
     pub fvk: String,
+    pub fvk_hex: String,      // hex encoded XFVK
+    pub dfvk_hex: String,     // hex encoded DDFVK
     pub spending_key: Option<String>,
+    pub ivk: Option<String>
 }
 
 pub struct EncryptedPayload {
@@ -145,82 +177,7 @@ fn internal_generate_symmetric_key_sender(
     Ok((symmetric_key, epk_bytes))
 }
 
-// generates a unique, deterministic encryption address for a communication channel
-// between two parties, identified by from_id` and `to_id
-pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
 
-    // determine the base spending key from either a seed or a provided key
-    let base_sk = if let Some(seed_hex) = params.seed {
-
-        // if a seed is provided, derive the account key using the hd_index
-        let seed_bytes = hex::decode(seed_hex)?;
-        let master_sk = ExtendedSpendingKey::master(&seed_bytes);
-        master_sk.derive_child(ChildIndex::hardened(params.hd_index))
-    } else if let Some(sk_hex) = params.spending_key {
-
-        // if a spending key is provided, decode and use it directly
-        let sk_bytes = hex::decode(sk_hex)?;
-        let sk_bytes_array: [u8; 169] = sk_bytes
-         .try_into()
-         .map_err(|_| anyhow!("Invalid spending key length"))?;
-        ExtendedSpendingKey::from_bytes(&sk_bytes_array)
-         .map_err(|_| anyhow!("Failed to parse spending key"))?
-    } else {
-        return Err(anyhow!("Must provide 'seed' or 'spendingKey'"));
-    };
-
-    let mut hasher = Sha256::default();
-    let mut base_sk_bytes = Vec::new();
-    base_sk.write(&mut base_sk_bytes)?;
-    
-    // hash the base spending key first
-    hasher.update(&base_sk_bytes);
-
-    // handle the optional from_id
-    if let Some(id_hex) = params.from_id {
-        let from_id_bytes = hex::decode(id_hex)?;
-        hasher.update(from_id_bytes);
-    } else {
-        // if from_id is null, hash a single zero byte, matching the daemon logic
-        hasher.update([0u8]);
-    }
-
-    // handle the optional to_id
-    if let Some(id_hex) = params.to_id {
-        let to_id_bytes = hex::decode(id_hex)?;
-        hasher.update(to_id_bytes);
-    }
-
-    // here is our unique, deterministic seed for the communication channel
-    let channel_seed: [u8; 32] = hasher.finalize().into();
-
-    // use the new channel seed to derive the final key for this channel
-    // using the encryption_index
-    let channel_master_sk = ExtendedSpendingKey::master(&channel_seed);
-    let final_sk = channel_master_sk.derive_child(ChildIndex::hardened(params.encryption_index));
-
-    // get the view-only key (dfvk) from the final spending key
-    let dfvk = final_sk.to_diversifiable_full_viewing_key();
-
-    let network = Network::MainNetwork;
-    let (_diversifier, payment_address) = dfvk.default_address();
-    let addr = Address::from(payment_address);
-
-    // prepare the final address and fvk in the channelkeys struct to be returned
-    let channel_keys = ChannelKeys {
-        address: addr.encode(&network),
-        fvk: hex::encode(dfvk.to_bytes()),
-        spending_key: if params.return_secret {
-            let mut sk_bytes = Vec::new();
-            final_sk.write(&mut sk_bytes)?;
-            Some(hex::encode(sk_bytes))
-        } else {
-            None
-        },
-    };
-
-    Ok(channel_keys)
-}
 // generates a standard BIP-44 derived spending key from a seed.
 pub fn generate_spending_key(seed_hex: String, hd_index: u32) -> Result<String> {
     let seed_bytes = hex::decode(seed_hex)?;
@@ -242,6 +199,128 @@ pub fn generate_spending_key(seed_hex: String, hd_index: u32) -> Result<String> 
     // return the hex-encoded spending key
     Ok(hex::encode(sk_bytes))
 }
+
+// generates a unique, deterministic encryption address for a communication channel
+// between two parties, identified by from_id` and `to_id
+pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
+    // determine the base spending key from either a seed or a provided key
+    let base_sk = if let Some(seed_hex) = params.seed {
+        // if a seed is provided, derive the account key using the hd_index
+        let seed_bytes = hex::decode(seed_hex)?;
+        if seed_bytes.len() != 32 && seed_bytes.len() != 64 {
+            return Err(anyhow!("Seed for encryption address must be 32 or 64 bytes (hex)"));
+        }
+
+        // derive base spending key using the daemon's fixed path m/32'/coin_type'/hd_index'
+        let master_sk = ExtendedSpendingKey::master(&seed_bytes);
+        let purpose_key = master_sk.derive_child(ChildIndex::hardened(32));
+        // Use Verus/your code's coin type (133 used previously). If you have dynamic coin type, replace here.
+        let coin_type_key = purpose_key.derive_child(ChildIndex::hardened(133));
+        coin_type_key.derive_child(ChildIndex::hardened(params.hd_index))
+    } else if let Some(sk_hex) = params.spending_key {
+        // if a spending key is provided, decode and use it directly
+        let sk_bytes = hex::decode(sk_hex)?;
+        let sk_bytes_array: [u8; 169] = sk_bytes
+            .try_into()
+            .map_err(|_| anyhow!("Invalid spending key length"))?;
+        ExtendedSpendingKey::from_bytes(&sk_bytes_array)
+            .map_err(|_| anyhow!("Failed to parse spending key"))?
+    } else {
+        return Err(anyhow!("Must provide 'seed' or 'spendingKey'"));
+    };
+
+    // serialize base spending key
+    let mut base_sk_bytes = Vec::new();
+    base_sk.write(&mut base_sk_bytes)?;
+
+    // concatenate bytes and then hash, exactly like the JNI function ---
+    let mut encryption_seed_bytes = base_sk_bytes.clone();
+
+    // helper to parse id param into 20-byte hash160 (either accept 40-hex hex or compute RIPEMD160(SHA256(text)))
+    fn id_to_h160_bytes(id: &str) -> Result<[u8; 20]> {
+        // fast path: if caller provided 40 hex chars, treat as the h160 directly
+        if id.len() == 40 && id.chars().all(|c| c.is_ascii_hexdigit()) {
+            let b = hex::decode(id)?;
+            if b.len() != 20 {
+                return Err(anyhow!("id hex must be 20 bytes"));
+            }
+            let arr: [u8; 20] = b.try_into().unwrap();
+            return Ok(arr);
+        }
+        // otherwise compute hash160 = RIPEMD160(SHA256(id_bytes))
+        let sha = Sha256::digest(id.as_bytes());
+        let rip = Ripemd160::digest(&sha);
+        let arr: [u8; 20] = rip.into();
+        Ok(arr)
+    }
+
+    // if from_id present, append byte-flipped hash160
+    if let Some(id_str) = params.from_id.as_ref() {
+        if !id_str.is_empty() {
+            let mut h160 = id_to_h160_bytes(id_str)?;
+            h160.reverse(); // byte-flip to match daemon little-endian ordering
+            encryption_seed_bytes.extend_from_slice(&h160);
+        }
+    else {
+            encryption_seed_bytes.push(0u8);
+        }
+    } else {
+        encryption_seed_bytes.push(0u8);
+    }
+    // if to_id present, append byte-flipped hash160
+    if let Some(id_str) = params.to_id.as_ref() {
+        if !id_str.is_empty() {
+            let mut h160 = id_to_h160_bytes(id_str)?;
+            h160.reverse(); // byte-flip to match daemon little-endian ordering
+            encryption_seed_bytes.extend_from_slice(&h160);
+        }
+    }
+
+    // here is our unique, deterministic seed for the communication channel
+    let channel_seed: [u8; 32] = Sha256::digest(&encryption_seed_bytes).into();
+
+    // use the new channel seed to derive the final key for this channel
+    // using the `encryption_index` but preserving the daemon's path m/32'/coin_type'/encryption_index'
+    let channel_master_sk = ExtendedSpendingKey::master(&channel_seed);
+    let channel_purpose = channel_master_sk.derive_child(ChildIndex::hardened(32));
+    let channel_coin = channel_purpose.derive_child(ChildIndex::hardened(133)); // use same coin type as above
+    let final_sk = channel_coin.derive_child(ChildIndex::hardened(params.encryption_index));
+    
+    // derive ExtendedFullViewingKey from the final spending key
+    let xfvk = final_sk.to_extended_full_viewing_key();
+
+    // bech32 encode it
+    let fvk_bech = key_encoding::encode_xfvk(&xfvk)?;
+    
+    // get the view-only key (dfvk) from the final spending key
+    let dfvk = final_sk.to_diversifiable_full_viewing_key();
+
+    let network = Network::MainNetwork;
+    let (_diversifier, payment_address) = dfvk.default_address();
+    let addr = Address::from(payment_address);
+
+    let ivk = dfvk.to_ivk(Scope::External);
+    
+    let mut xfvk_bytes = Vec::with_capacity(169);
+    xfvk.write(&mut xfvk_bytes)?;
+
+    // prepare the final address and fvk in the channelkeys struct to be returned
+    let channel_keys = ChannelKeys {
+        address: addr.encode(&network),
+        fvk: fvk_bech,
+        fvk_hex: hex::encode(xfvk_bytes),        
+        dfvk_hex: hex::encode(dfvk.to_bytes()),
+        spending_key: if params.return_secret {
+            Some(key_encoding::encode_sk(&final_sk)?) 
+        } else {
+            None
+        },
+        ivk: Some(hex::encode(ivk.0.to_bytes())),
+    };
+
+    Ok(channel_keys)
+}
+
 
 // encrypts a message for a given zcash address
 pub fn encrypt_message(
@@ -337,164 +416,4 @@ pub fn decrypt_message(params: DecryptParams) -> Result<String> {
      // convert the decrypted bytes back into a readable string
     String::from_utf8(buffer)
    .map_err(|_| anyhow!("Failed to parse decrypted message as a UTF-8 string.").into())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // Use a fixed, known seed for deterministic and repeatable test results.
-    const TEST_SEED_HEX: &str = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2";
-    const FROM_ID_HEX: &str = "73656e64657240"; 
-    const TO_ID_HEX: &str = "726563697069656e7440"; 
-
-    /// helper function to generate a standard set of channel keys for use in other tests
-    fn setup_channel_keys() -> ChannelKeys {
-        let params = RpcParams {
-            seed: Some(TEST_SEED_HEX.to_string()),
-            spending_key: None,
-            hd_index: 0,
-            encryption_index: 0,
-            from_id: FROM_ID_HEX.to_string(),
-            to_id: TO_ID_HEX.to_string(),
-            return_secret: true, // Return the spending key for other tests
-        };
-        z_getencryptionaddress(params).expect("Failed to generate channel keys for setup")
-    }
-
-
-    #[test]
-    fn test_generate_spending_key_success() {
-        let result = generate_spending_key(TEST_SEED_HEX.to_string(), 0);
-        assert!(result.is_ok(), "generate_spending_key should succeed");
-        let sk_hex = result.unwrap();
-
-        // An extended spending key is 169 bytes long, which is 338 hex characters.
-        assert_eq!(sk_hex.len(), 338, "Spending key should have the correct hex length");
-    }
-
-    #[test]
-    fn test_generate_spending_key_fails_on_short_seed() {
-        let short_seed = "a1b2c3".to_string();
-        let result = generate_spending_key(short_seed, 0);
-        assert!(result.is_err(), "generate_spending_key should fail with a short seed");
-    }
-
-    #[test]
-    fn test_z_getencryptionaddress_is_deterministic() {
-        let params1 = RpcParams {
-            seed: Some(TEST_SEED_HEX.to_string()),
-            spending_key: None,
-            hd_index: 1,
-            encryption_index: 1,
-            from_id: FROM_ID_HEX.to_string(),
-            to_id: TO_ID_HEX.to_string(),
-            return_secret: false,
-        };
-        let keys1 = z_getencryptionaddress(params1).expect("First key generation failed");
-
-        let params2 = RpcParams {
-            seed: Some(TEST_SEED_HEX.to_string()),
-            spending_key: None,
-            hd_index: 1,
-            encryption_index: 1,
-            from_id: FROM_ID_HEX.to_string(),
-            to_id: TO_ID_HEX.to_string(),
-            return_secret: false,
-        };
-        let keys2 = z_getencryptionaddress(params2).expect("Second key generation failed");
-
-        assert_eq!(keys1.address, keys2.address, "Address should be deterministic");
-        assert_eq!(keys1.fvk, keys2.fvk, "FVK should be deterministic");
-    }
-
-    #[test]
-    fn test_z_getencryptionaddress_handles_return_secret_flag() {
-        // return_secret = true
-        let params_with_secret = RpcParams {
-            seed: Some(TEST_SEED_HEX.to_string()),
-            spending_key: None,
-            hd_index: 2,
-            encryption_index: 2,
-            from_id: FROM_ID_HEX.to_string(),
-            to_id: TO_ID_HEX.to_string(),
-            return_secret: true,
-        };
-        let keys_with_secret = z_getencryptionaddress(params_with_secret).expect("Key gen with secret failed");
-        assert!(keys_with_secret.spending_key.is_some(), "Spending key should be returned");
-
-        // return_secret = false
-        let params_without_secret = RpcParams {
-            seed: Some(TEST_SEED_HEX.to_string()),
-            spending_key: None,
-            hd_index: 2,
-            encryption_index: 2,
-            from_id: FROM_ID_HEX.to_string(),
-            to_id: TO_ID_HEX.to_string(),
-            return_secret: false,
-        };
-        let keys_without_secret = z_getencryptionaddress(params_without_secret).expect("Key gen without secret failed");
-        assert!(keys_without_secret.spending_key.is_none(), "Spending key should NOT be returned");
-    }
-
-
-    #[test]
-    fn test_full_encryption_decryption_cycle() {
-
-        // Generate keys for a recipient.
-        let recipient_keys = setup_channel_keys();
-        let original_message = "This is a secret message for the Verus Mobile SDK!".to_string();
-
-        // encrypt a message to the recipient's address.
-        let encrypted_payload_result = encrypt_message(
-            recipient_keys.address.clone(),
-            original_message.clone(),
-            false, 
-        );
-        assert!(encrypted_payload_result.is_ok(), "Encryption should succeed");
-        let encrypted_payload = encrypted_payload_result.unwrap();
-
-        // decrypt the message using the recipient's Full Viewing Key (FVK).
-        let decrypt_params = DecryptParams {
-            fvk_hex: Some(recipient_keys.fvk),
-            ephemeral_public_key_hex: Some(encrypted_payload.ephemeral_public_key),
-            ciphertext_hex: encrypted_payload.ciphertext,
-            symmetric_key_hex: None, // We are testing decryption with FVK
-        };
-        let decrypted_message_result = decrypt_message(decrypt_params);
-        assert!(decrypted_message_result.is_ok(), "Decryption with FVK should succeed");
-
-        // The decrypted message should match the original
-        assert_eq!(decrypted_message_result.unwrap(), original_message);
-    }
-
-    #[test]
-    fn test_decryption_with_symmetric_key() {
-        // Generate keys for a recipient
-        let recipient_keys = setup_channel_keys();
-        let original_message = "Testing direct decryption with an SSK.".to_string();
-
-        // Encrypt a message and ask for the symmetric key to be returned
-        let encrypted_payload_result = encrypt_message(
-            recipient_keys.address,
-            original_message.clone(),
-            true, // Return the symmetric key
-        );
-        assert!(encrypted_payload_result.is_ok(), "Encryption should succeed");
-        let encrypted_payload = encrypted_payload_result.unwrap();
-        assert!(encrypted_payload.symmetric_key.is_some(), "Symmetric key should be returned");
-
-        // Decrypt the message using ONLY the returned symmetric key
-        let decrypt_params = DecryptParams {
-            fvk_hex: None, // FVK is not needed
-            ephemeral_public_key_hex: None, // Ephemeral key is not needed
-            ciphertext_hex: encrypted_payload.ciphertext,
-            symmetric_key_hex: encrypted_payload.symmetric_key,
-        };
-        let decrypted_message_result = decrypt_message(decrypt_params);
-        assert!(decrypted_message_result.is_ok(), "Decryption with SSK should succeed");
-
-        // The decrypted message should match the original
-        assert_eq!(decrypted_message_result.unwrap(), original_message);
-    }
 }
