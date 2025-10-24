@@ -37,12 +37,12 @@ pub const B58_SPROUT_ADDRESS_PREFIX: [u8; 1] = [0xb6];
 /// The prefix for a Base58Check-encoded testnet transparent [`PublicKeyHash`].
 ///
 /// [`PublicKeyHash`]: https://docs.rs/zcash_primitives/latest/zcash_primitives/legacy/enum.TransparentAddress.html
-pub const B58_PUBKEY_ADDRESS_PREFIX: [u8; 1] = [0x3c];
+pub const B58_PUBKEY_ADDRESS_PREFIX: [u8; 1] = [0x00];
 
 /// The prefix for a Base58Check-encoded testnet transparent [`ScriptHash`].
 ///
 /// [`ScriptHash`]: https://docs.rs/zcash_primitives/latest/zcash_primitives/legacy/enum.TransparentAddress.html
-pub const B58_SCRIPT_ADDRESS_PREFIX: [u8; 1] = [0x55];
+pub const B58_SCRIPT_ADDRESS_PREFIX: [u8; 1] = [0x05];
 
 /// The HRP for a Bech32m-encoded testnet [ZIP 320] TEX address.
 ///

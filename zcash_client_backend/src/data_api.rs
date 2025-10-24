@@ -738,8 +738,6 @@ pub trait WalletRead {
     fn validate_seed(
         &self,
         account_id: Self::AccountId,
-        transparentkey: &SecretVec<u8>,
-        extsk: &SecretVec<u8>,
         seed: &SecretVec<u8>,
     ) -> Result<bool, Self::Error>;
 
@@ -750,8 +748,6 @@ pub trait WalletRead {
     /// because that would require brute-forcing the ZIP 32 account index space.
     fn seed_relevance_to_derived_accounts(
         &self,
-        transparentkey: &SecretVec<u8>,
-        extsk: &SecretVec<u8>,
         seed: &SecretVec<u8>,
     ) -> Result<SeedRelevance<Self::AccountId>, Self::Error>;
 
@@ -1729,8 +1725,6 @@ pub mod testing {
         fn validate_seed(
             &self,
             _account_id: Self::AccountId,
-            _transparentkey: &SecretVec<u8>,
-            _extsk: &SecretVec<u8>,
             _seed: &SecretVec<u8>,
         ) -> Result<bool, Self::Error> {
             Ok(false)
@@ -1738,8 +1732,6 @@ pub mod testing {
 
         fn seed_relevance_to_derived_accounts(
             &self,
-            _transparentkey: &SecretVec<u8>,
-            _extsk: &SecretVec<u8>,
             _seed: &SecretVec<u8>,
         ) -> Result<SeedRelevance<Self::AccountId>, Self::Error> {
             Ok(SeedRelevance::NoAccounts)

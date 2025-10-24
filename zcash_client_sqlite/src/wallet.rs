@@ -252,26 +252,22 @@ impl ViewingKey {
 
 pub(crate) fn seed_matches_derived_account<P: consensus::Parameters>(
     params: &P,
-    transparentkey: &SecretVec<u8>,
-    extsk: &SecretVec<u8>,
     seed: &SecretVec<u8>,
     seed_fingerprint: &SeedFingerprint,
     account_index: zip32::AccountId,
     uivk: &UnifiedIncomingViewingKey,
 ) -> Result<bool, SqliteClientError> {
-    let mut seed_fingerprint_match = false;
-    if seed.expose_secret().len() > 0 {
-        seed_fingerprint_match =
-        &SeedFingerprint::from_seed(seed.expose_secret()).ok_or_else(|| {
-            SqliteClientError::BadAccountData(
-                "Seed must be between 32 and 252 bytes in length.".to_owned(),
-            )
-        })? == seed_fingerprint;
-    }
+    let seed_fingerprint_match =
+      &SeedFingerprint::from_seed(seed.expose_secret()).ok_or_else(|| {
+          SqliteClientError::BadAccountData(
+              "Seed must be between 32 and 252 bytes in length.".to_owned(),
+          )
+      })? == seed_fingerprint;
+
     // Keys are not comparable with `Eq`, but addresses are, so we derive what should
     // be equivalent addresses for each key and use those to check for key equality.
     let uivk_match =
-        match UnifiedSpendingKey::from_seed(params, &transparentkey.expose_secret()[..], &extsk.expose_secret()[..], &seed.expose_secret()[..], account_index) {
+        match UnifiedSpendingKey::from_seed(params, &[], &[], &seed.expose_secret()[..], account_index) {
             // If we can't derive a USK from the given seed with the account's ZIP 32
             // account index, then we immediately know the UIVK won't match because wallet
             // accounts are required to have a known UIVK.
@@ -286,17 +282,13 @@ pub(crate) fn seed_matches_derived_account<P: consensus::Parameters>(
                 },
             )?,
         };
-    if seed.expose_secret().len() > 0 {
-        if seed_fingerprint_match != uivk_match {
-            // If these mismatch, it suggests database corruption.
-            Err(SqliteClientError::CorruptedData(format!(
-                "Seed fingerprint match: {seed_fingerprint_match}, uivk match: {uivk_match}"
-            )))    
-        } else {
-            Ok(seed_fingerprint_match && uivk_match)
-        }
+    if seed_fingerprint_match != uivk_match {
+        // If these mismatch, it suggests database corruption.
+        Err(SqliteClientError::CorruptedData(format!(
+           "Seed fingerprint match: {seed_fingerprint_match}, uivk match: {uivk_match}"
+        )))    
     } else {
-        Ok(uivk_match)
+        Ok(seed_fingerprint_match && uivk_match)
     }
 }
 

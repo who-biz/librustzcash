@@ -19,7 +19,6 @@ use super::{
 pub(super) const MIGRATION_ID: Uuid = Uuid::from_u128(0x6d02ec76_8720_4cc6_b646_c4e2ce69221c);
 
 pub(crate) struct Migration<P: consensus::Parameters> {
-    pub(super) transparentkey: Option<Rc<SecretVec<u8>>>,
     pub(super) seed: Option<Rc<SecretVec<u8>>>,
     pub(super) params: P,
 }
@@ -99,7 +98,6 @@ impl<P: consensus::Parameters> RusqliteMigration for Migration<P> {
             Ok(row.get::<_, u32>(0)? > 0)
         })? {
             if let Some(seed) = &self.seed {
-                if let Some(transparentkey) = &self.transparentkey {
 
                   let seed_id = SeedFingerprint::from_seed(seed.expose_secret())
                       .expect("Seed is between 32 and 252 bytes in length.");
@@ -138,7 +136,7 @@ impl<P: consensus::Parameters> RusqliteMigration for Migration<P> {
                           .map_err(|_| WalletMigrationError::CorruptedData("Bad UFVK".to_string()))?;
                       let usk = UnifiedSpendingKey::from_seed(
                           &self.params,
-                          transparentkey.expose_secret(),
+                          &[],
                           &[],
                           seed.expose_secret(),
                           zip32::AccountId::try_from(account_index).map_err(|_| {
@@ -248,7 +246,6 @@ impl<P: consensus::Parameters> RusqliteMigration for Migration<P> {
 
                       )?;
                   }
-              }
             } else {
                 return Err(WalletMigrationError::SeedRequired);
             }
