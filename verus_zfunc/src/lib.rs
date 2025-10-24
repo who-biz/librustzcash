@@ -33,7 +33,7 @@ mod key_encoding {
         serialized.push(xfvk.depth);
         serialized.extend_from_slice(&xfvk.parent_fvk_tag.0);
         serialized.extend_from_slice(&xfvk.child_index.index().to_le_bytes());
-        serialized.extend_from_slice(&xfvk.chain_code.0);
+        serialized.extend_from_slice(xfvk.chain_code.as_bytes());
         serialized.extend_from_slice(&xfvk.fvk.to_bytes());
         serialized.extend_from_slice(&xfvk.dk.0);
 
