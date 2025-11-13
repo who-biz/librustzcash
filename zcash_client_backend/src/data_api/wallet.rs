@@ -40,7 +40,6 @@ use sapling::{
     prover::{OutputProver, SpendProver},
 };
 use std::num::NonZeroU32;
-//use tracing::warn;
 use super::InputSource;
 use crate::{
     address::Address,
@@ -259,8 +258,6 @@ where
     >,
     DbT: WalletCommitmentTrees,
 {
-
-    //warn!("create_spend_to_address called!");
     let account = wallet_db
         .get_account_for_ufvk(&usk.to_unified_full_viewing_key())
         .map_err(Error::DataSource)?
@@ -426,8 +423,6 @@ where
     ParamsT: consensus::Parameters + Clone,
     InputsT: InputSelector<InputSource = DbT>,
 {
-    //warn!("propose_transfer called!");
-
     let (target_height, anchor_height) = wallet_db
         .get_target_and_anchor_heights(min_confirmations)
         .map_err(|e| Error::from(InputSelectorError::DataSource(e)))?
@@ -501,8 +496,6 @@ where
     >,
     DbT::NoteRef: Copy + Eq + Ord,
 {
-    //warn!("propose_standard_transfer_to_address called!");
-
     let request = zip321::TransactionRequest::new(vec![Payment {
         recipient_address: to.clone(),
         amount,
@@ -664,8 +657,6 @@ where
     ParamsT: consensus::Parameters + Clone,
     FeeRuleT: FeeRule,
 {
-    //warn!(">>> propose_transaction called!");
-
     // TODO: Spending shielded outputs of prior multi-step transaction steps is not yet
     // supported. Maybe support this at some point? Doing so would require a higher-level
     // approach in the wallet that waits for transactions with shielded outputs to be
@@ -705,8 +696,6 @@ where
         .ok_or(Error::KeyNotRecognized)?
         .id();
 
-    //warn!(">>> bp1 create_proposed_tx");
-
     let (sapling_anchor, sapling_inputs) =
         if proposal_step.involves(PoolType::Shielded(ShieldedProtocol::Sapling)) {
             proposal_step.shielded_inputs().map_or_else(
@@ -717,7 +706,6 @@ where
                             .root_at_checkpoint_id(&inputs.anchor_height())?
                             .into();
 
-                        //warn!(">>> bp2 create_proposed_tx, anchor({:?}), inputs.anchor_height({:?})", anchor, inputs.anchor_height());
                         let sapling_inputs = inputs
                             .notes()
                             .iter()
@@ -728,10 +716,8 @@ where
                                         Scope::Internal => usk.sapling().derive_internal(),
                                     };
 
-                                    //warn!(">>> bp3 create_proposed_tx, note({:?})", note);
                                     sapling_tree
                                         .witness_at_checkpoint_id_caching(
-//                                        .witness_at_checkpoint_id(
                                             selected.note_commitment_tree_position(),
                                             &inputs.anchor_height(),
                                         )
@@ -744,7 +730,6 @@ where
                             })
                             .collect::<Result<Vec<_>, Error<_, _, _, _>>>()?;
 
-                        //warn!(">>> bp4, before Ok(anchor,sapling_inputs), create_proposed_tx, sapling_inputs({:?})", sapling_inputs);
                         Ok((Some(anchor), sapling_inputs))
                     })
                 },
@@ -802,7 +787,6 @@ where
         },
     );
 
-    //warn!(">>> bp5 create_proposed_tx");
     for (sapling_key, sapling_note, merkle_path) in sapling_inputs.into_iter() {
         builder.add_sapling_spend(&sapling_key, sapling_note.clone(), merkle_path)?;
     }
@@ -1057,7 +1041,6 @@ where
         }
     }
 
-    //warn!(">>> bp6 create_proposed_tx");
     for change_value in proposal_step.balance().proposed_change() {
         let memo = change_value
             .memo()
@@ -1108,12 +1091,8 @@ where
         }
     }
 
-    //warn!(">>> bp7 create_proposed_tx");
-
     // Build the transaction with the specified fee rule
     let build_result = builder.build(OsRng, spend_prover, output_prover, fee_rule)?;
-
-    //warn!(">>> bp7 create_proposed_tx, build_result({:?})", build_result);
 
     #[cfg(feature = "orchard")]
     let orchard_internal_ivk = orchard_fvk.to_ivk(orchard::keys::Scope::Internal);

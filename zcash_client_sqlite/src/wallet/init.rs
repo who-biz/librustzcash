@@ -1,14 +1,7 @@
-//! Functions for initializing the various databases.&ext
-
+//! Functions for initializing the various databases.
 
 use std::fmt;
 use std::rc::Rc;
-
-#[cfg(target_os = "android")]
-use log::LevelFilter;
-
-#[cfg(target_os = "android")]
-use android_logger::Config;
 
 use schemer::{Migrator, MigratorError};
 use schemer_rusqlite::RusqliteAdapter;
@@ -267,29 +260,26 @@ pub fn init_wallet_db<P: consensus::Parameters + 'static>(
     extsk: Option<SecretVec<u8>>,
     seed: Option<SecretVec<u8>>,
 ) -> Result<(), MigratorError<WalletMigrationError>> {
-
-    #[cfg(target_os = "android")]
-    android_logger::init_once(
-        Config::default().with_max_level(LevelFilter::Trace),
-    );
-
     init_wallet_db_internal(wdb, transparentkey, extsk, seed, &[], true)
 }
 
 fn init_wallet_db_internal<P: consensus::Parameters + 'static>(
     wdb: &mut WalletDb<rusqlite::Connection, P>,
-    transparentkey: Option<SecretVec<u8>>,
+    _transparentkey: Option<SecretVec<u8>>,
     extsk: Option<SecretVec<u8>>,
     seed: Option<SecretVec<u8>>,
     target_migrations: &[Uuid],
     verify_seed_relevance: bool,
 ) -> Result<(), MigratorError<WalletMigrationError>> {
-    let transparentkey = transparentkey.map(Rc::new);
+//    let transparentkey = transparentkey.map(Rc::new);
     let extsk = extsk.map(Rc::new);
     let seed = seed.map(Rc::new);
 
     // Turn off foreign keys, and ensure that table replacement/modification
     // does not break views
+
+    //TODO: Add 'migrations' cargo feature to disable this in compilation
+
     wdb.conn
         .execute_batch(
             "PRAGMA foreign_keys = OFF;
@@ -301,7 +291,7 @@ fn init_wallet_db_internal<P: consensus::Parameters + 'static>(
 
     let mut migrator = Migrator::new(adapter);
     migrator
-        .register_multiple(migrations::all_migrations(&wdb.params, transparentkey.clone(), seed.clone()))
+        .register_multiple(migrations::all_migrations(&wdb.params, seed.clone()))
         .expect("Wallet migration registration should have been successful.");
     if target_migrations.is_empty() {
         migrator.up(None)?;
@@ -310,6 +300,7 @@ fn init_wallet_db_internal<P: consensus::Parameters + 'static>(
             migrator.up(Some(*target_migration))?;
         }
     }
+
     wdb.conn
         .execute("PRAGMA foreign_keys = ON", [])
         .map_err(|e| MigratorError::Adapter(WalletMigrationError::from(e)))?;
@@ -319,23 +310,21 @@ fn init_wallet_db_internal<P: consensus::Parameters + 'static>(
     // but unfortunately `schemer` does not currently expose its DAG of migrations. As a
     // consequence, the caller has to choose whether or not this check should be performed
     // based upon which migrations they're asking to apply.
-    if verify_seed_relevance {
+    if verify_seed_relevance && extsk.is_none() {
         if let Some(seed) = seed {
-            if let Some(transparentkey) = transparentkey {
-              match wdb
-                  .seed_relevance_to_derived_accounts(&transparentkey, &extsk.unwrap(), &seed)
-                  .map_err(sqlite_client_error_to_wallet_migration_error)?
-              {
-                  SeedRelevance::Relevant { .. } => (),
-                  // Every seed is relevant to a wallet with no accounts; this is most likely a
-                  // new wallet database being initialized for the first time.
-                  SeedRelevance::NoAccounts => (),
-                  // No seed is relevant to a wallet that only has imported accounts.
-                  SeedRelevance::NotRelevant | SeedRelevance::NoDerivedAccounts => {
-                      return Err(WalletMigrationError::SeedNotRelevant.into())
-                  }
-              }
-           }
+            match wdb
+                .seed_relevance_to_derived_accounts(&seed)
+                .map_err(sqlite_client_error_to_wallet_migration_error)?
+            {
+                SeedRelevance::Relevant { .. } => (),
+                // Every seed is relevant to a wallet with no accounts; this is most likely a
+                // new wallet database being initialized for the first time.
+                SeedRelevance::NoAccounts => (),
+                // No seed is relevant to a wallet that only has imported accounts.
+                SeedRelevance::NotRelevant | SeedRelevance::NoDerivedAccounts => {
+                    return Err(WalletMigrationError::SeedNotRelevant.into())
+                }
+            }
         }
     }
 

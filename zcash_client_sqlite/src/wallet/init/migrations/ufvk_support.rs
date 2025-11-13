@@ -31,7 +31,6 @@ pub(super) const MIGRATION_ID: Uuid = Uuid::from_u128(0xbe57ef3b_388e_42ea_97e2_
 
 pub(super) struct Migration<P> {
     pub(super) params: P,
-    pub(super) transparentkey: Option<Rc<SecretVec<u8>>>,
     pub(super) seed: Option<Rc<SecretVec<u8>>>,
 }
 
@@ -91,13 +90,12 @@ impl<P: consensus::Parameters> RusqliteMigration for Migration<P> {
             // need to be migrated; otherwise, it's fine to not supply the seed if this
             // migration is being used to initialize an empty database.
             if let Some(seed) = &self.seed {
-                if let Some(transparentkey) = &self.transparentkey {
                   let account: u32 = row.get(0)?;
                   let account = AccountId::try_from(account).map_err(|_| {
                       WalletMigrationError::CorruptedData("Account ID is invalid".to_owned())
                   })?;
                   let usk =
-                      UnifiedSpendingKey::from_seed(&self.params, transparentkey.expose_secret(), &[], seed.expose_secret(), account)
+                      UnifiedSpendingKey::from_seed(&self.params, &[], &[], seed.expose_secret(), account)
                           .map_err(|_| {
                               if seed_is_relevant {
                                   WalletMigrationError::CorruptedData(
@@ -185,7 +183,6 @@ impl<P: consensus::Parameters> RusqliteMigration for Migration<P> {
                           ":transparent_address": &taddress_str,
                       ],
                   )?;
-              }
             } else {
                 return Err(WalletMigrationError::SeedRequired);
             }

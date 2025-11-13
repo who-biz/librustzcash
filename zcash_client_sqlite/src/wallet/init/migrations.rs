@@ -33,7 +33,6 @@ use super::WalletMigrationError;
 
 pub(super) fn all_migrations<P: consensus::Parameters + 'static>(
     params: &P,
-    transparentkey: Option<Rc<SecretVec<u8>>>,
     seed: Option<Rc<SecretVec<u8>>>,
 ) -> Vec<Box<dyn RusqliteMigration<Error = WalletMigrationError>>> {
     //                                   initial_setup
@@ -71,7 +70,6 @@ pub(super) fn all_migrations<P: consensus::Parameters + 'static>(
         Box::new(utxos_table::Migration {}),
         Box::new(ufvk_support::Migration {
             params: params.clone(),
-            transparentkey: transparentkey.clone(),
             seed: seed.clone(),
         }),
         Box::new(addresses_table::Migration {
@@ -106,7 +104,6 @@ pub(super) fn all_migrations<P: consensus::Parameters + 'static>(
             params: params.clone(),
         }),
         Box::new(full_account_ids::Migration {
-            transparentkey,
             seed,
             params: params.clone(),
         }),

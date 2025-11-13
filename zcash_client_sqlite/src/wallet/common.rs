@@ -116,8 +116,6 @@ pub(crate) fn select_spendable_notes<P: consensus::Parameters, F, Note>(
 where
     F: Fn(&P, &Row) -> Result<Option<ReceivedNote<ReceivedNoteId, Note>>, SqliteClientError>,
 {
-    //warn!("select_spendable_notes: anchor_height({:?})", anchor_height);
-
     let birthday_height = match wallet_birthday(conn)? {
         Some(birthday) => birthday,
         None => {

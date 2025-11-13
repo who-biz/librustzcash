@@ -28,8 +28,8 @@ use {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     InvalidAddress {
-	calculated: String,
-	expected: String,
+        calculated: String,
+        expected: String,
     },
     InvalidAmount,
 }
@@ -132,9 +132,9 @@ impl TransparentBuilder {
                 }
             }
             _ => return Err(Error::InvalidAddress {
-			calculated: "xxxx".to_string(),
-			expected: "xxxx".to_string(),
-		}),
+                        calculated: "xxxx".to_string(),
+                        expected: "xxxx".to_string(),
+                 }),
         }
 
         self.inputs.push(TransparentInputInfo {

@@ -35,6 +35,11 @@ incrementalmerkletree = { workspace = true, optional = true }
 [dev-dependencies]
 proptest.workspace = true
 
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = [
+    'cfg(zcash_unstable, values("nu6", "zfuture"))'
+] }
+
 [features]
 ## Exposes APIs that are useful for testing, such as `proptest` strategies.
 test-dependencies = [
