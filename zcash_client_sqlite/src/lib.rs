@@ -579,8 +579,8 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
 
             let account_id;
 
-            //TODO: below condition doesn't seem right. Not sure what my intent was here. look into
-            if (transparentkey.expose_secret().len() != 32) || (extsk.expose_secret().len() != 169) {
+            // account is derived if we have no transprentkey, and no extsk (i.e. we have a seed)
+            if (transparentkey.expose_secret().len() == 0) && (extsk.expose_secret().len() == 0) {
                 account_id = wallet::add_account(
                     wdb.conn.0,
                     &wdb.params,
