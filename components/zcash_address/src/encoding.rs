@@ -111,7 +111,7 @@ impl FromStr for ZcashAddress {
         // The rest use Base58Check.
         if let Ok(decoded) = bs58::decode(s).with_check(None).into_vec() {
             if decoded.len() >= 1 {
-                let (prefix, net) = match decoded[..2].try_into().unwrap() {
+                let (prefix, net) = match decoded[..1].try_into().unwrap() {
                     prefix @ (mainnet::B58_PUBKEY_ADDRESS_PREFIX
                     | mainnet::B58_SCRIPT_ADDRESS_PREFIX
                     | mainnet::B58_SPROUT_ADDRESS_PREFIX) => (prefix, NetworkType::Main),
