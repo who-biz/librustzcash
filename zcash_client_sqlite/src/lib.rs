@@ -543,11 +543,24 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
     ) -> Result<(AccountId, UnifiedSpendingKey), Self::Error> {
         self.transactionally(|wdb| {
 
-
-            if (extsk.expose_secret().len() != 0) && (extsk.expose_secret().len() != 169) {
-               panic!("extsk must have an exact length of 169 bytes!");
-               //throw error, we should only have one with data
+            if (extsk.expose_secret().len() != 0) {
+                if (extsk.expose_secret().len() != 169) {
+                    panic!("extsk must have an exact length of 169 bytes!");
+                }
+                if (seed.expose_secret().len() != 0) {
+                    panic!("Seed and extsk both present. Import them separately!"); 
+                }
+            } else {
+                // no extsk present
+                if (seed.expose_secret().len() == 0) {
+                    panic!("Neither seed, nor extsk present. We need (exclusively) one of them!"); 
+                }
             }
+
+           //TDDO: handle transparentkey if we wish to use them here. We can either: 
+           // 1.) initialize an hd transparent addr with a seed, 2:) import a wif separately. 
+           // transparent import design is different because Verus does not yet support HD transparent wallets
+ 
             let mut account_index = zip32::AccountId::ZERO;
 
             let seed_fingerprint;
@@ -563,6 +576,8 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
                     .transpose()?
                     .unwrap_or(zip32::AccountId::ZERO);
               } else {
+                // This isn't actually used since we started properly using AccountSource::Imported.
+                // Fingerprint and hd_index in DB populate as NULL for this case. Leaving here to appease compiler.
                 seed_fingerprint = 
                     SeedFingerprint::from_seed(extsk.expose_secret()).ok_or_else(|| {
                         SqliteClientError::BadAccountData(

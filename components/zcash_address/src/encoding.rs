@@ -115,7 +115,7 @@ impl FromStr for ZcashAddress {
                     prefix @ (mainnet::B58_PUBKEY_ADDRESS_PREFIX
                     | mainnet::B58_SCRIPT_ADDRESS_PREFIX
                     | mainnet::B58_SPROUT_ADDRESS_PREFIX) => (prefix, NetworkType::Main),
-                    prefix @ (testnet::B58_PUBKEY_ADDRESS_PREFIX  //TODO: unreachable condition (likely because of same address prefixes)
+                    prefix @ (testnet::B58_PUBKEY_ADDRESS_PREFIX
                     | testnet::B58_SCRIPT_ADDRESS_PREFIX
                     | testnet::B58_SPROUT_ADDRESS_PREFIX) => (prefix, NetworkType::Test),
                     // We will not define new Base58Check address encodings.
@@ -123,14 +123,15 @@ impl FromStr for ZcashAddress {
                 };
 
                 return match prefix {
+                   //TODO: if we ever support 2 byte prefixes, we need to add a byte-length constant for prefixes
                     mainnet::B58_SPROUT_ADDRESS_PREFIX | testnet::B58_SPROUT_ADDRESS_PREFIX => {
-                        decoded[2..].try_into().map(AddressKind::Sprout)
+                        decoded[1..].try_into().map(AddressKind::Sprout)
                     }
                     mainnet::B58_PUBKEY_ADDRESS_PREFIX | testnet::B58_PUBKEY_ADDRESS_PREFIX => {
                         decoded[1..].try_into().map(AddressKind::P2pkh)
                     }
                     mainnet::B58_SCRIPT_ADDRESS_PREFIX | testnet::B58_SCRIPT_ADDRESS_PREFIX => {
-                        decoded[2..].try_into().map(AddressKind::P2sh)
+                        decoded[1..].try_into().map(AddressKind::P2sh)
                     }
                     _ => unreachable!(),
                 }

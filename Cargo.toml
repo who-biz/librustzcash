@@ -116,6 +116,7 @@ aes = "0.8"
 fpe = "0.6"
 zip32 = "0.1.1"
 
+# these simply silence warnings from zcash, which don't apply to us
 [workspace.lints.rust]
 unexpected_cfgs = { level = "allow", check-cfg = [
     'cfg(zcash_unstable, values("nu6", "zfuture"))'
