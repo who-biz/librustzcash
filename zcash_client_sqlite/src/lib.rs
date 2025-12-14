@@ -543,11 +543,15 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
     ) -> Result<(AccountId, UnifiedSpendingKey), Self::Error> {
         self.transactionally(|wdb| {
 
+            //TODO: improve handling and do this centrally through UnifiedSpendingKey::from_seed(). we already have some checks
+            // written into there, and ideally we should not expose the secretVec in as few places as possible.however Kotlin/Swift FFIs
+            // also require exposing them for decoding keys and converting types. create_account is is called onlu once per account
             if (extsk.expose_secret().len() != 0) {
                 if (extsk.expose_secret().len() != 169) {
                     panic!("extsk must have an exact length of 169 bytes!");
                 }
                 if (seed.expose_secret().len() != 0) {
+                    // this is the only redundant condition that is also checked in usk::from_seed()
                     panic!("Seed and extsk both present. Import them separately!"); 
                 }
             } else {
@@ -559,7 +563,8 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
 
            //TDDO: handle transparentkey if we wish to use them here. We can either: 
            // 1.) initialize an hd transparent addr with a seed, 2:) import a wif separately. 
-           // transparent import design is different because Verus does not yet support HD transparent wallets
+           // transparent import design is different because Verus does not yet support HD transparent wallets.
+           // proper sanity checks are not in place, as a result (for transparent member of usk import)
  
             let mut account_index = zip32::AccountId::ZERO;
 
