@@ -544,8 +544,8 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
         self.transactionally(|wdb| {
 
             //TODO: improve handling and do this centrally through UnifiedSpendingKey::from_seed(). we already have some checks
-            // written into there, and ideally we should not expose the secretVec in as few places as possible.however Kotlin/Swift FFIs
-            // also require exposing them for decoding keys and converting types. create_account is is called onlu once per account
+            // written into there, and ideally we should expose the secretVec in as few places as possible. However Kotlin/Swift FFIs
+            // also require exposing them for decoding keys and converting types. create_account() is is called only once per account
             if (extsk.expose_secret().len() != 0) {
                 if (extsk.expose_secret().len() != 169) {
                     panic!("extsk must have an exact length of 169 bytes!");
