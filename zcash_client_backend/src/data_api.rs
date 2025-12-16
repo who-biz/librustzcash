@@ -1464,6 +1464,8 @@ pub trait WalletWrite: WalletRead {
     /// [ZIP 316]: https://zips.z.cash/zip-0316
     fn create_account(
         &mut self,
+        transparentkey: &SecretVec<u8>,
+        extsk: &SecretVec<u8>,
         seed: &SecretVec<u8>,
         birthday: &AccountBirthday,
     ) -> Result<(Self::AccountId, UnifiedSpendingKey), Self::Error>;
@@ -1869,11 +1871,13 @@ pub mod testing {
 
         fn create_account(
             &mut self,
+            transparentkey: &SecretVec<u8>,
+            extsk: &SecretVec<u8>,
             seed: &SecretVec<u8>,
             _birthday: &AccountBirthday,
         ) -> Result<(Self::AccountId, UnifiedSpendingKey), Self::Error> {
             let account = zip32::AccountId::ZERO;
-            UnifiedSpendingKey::from_seed(&self.network, seed.expose_secret(), account)
+            UnifiedSpendingKey::from_seed(&self.network, transparentkey.expose_secret(), extsk.expose_secret(), seed.expose_secret(), account)
                 .map(|k| (u32::from(account), k))
                 .map_err(|_| ())
         }

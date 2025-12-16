@@ -4,7 +4,7 @@ use hdwallet::{
     traits::{Deserialize, Serialize},
     ExtendedPrivKey, ExtendedPubKey, KeyIndex,
 };
-use secp256k1::PublicKey;
+use secp256k1::{PublicKey, Secp256k1};
 use sha2::{Digest, Sha256};
 use subtle::{Choice, ConstantTimeEq};
 
@@ -118,6 +118,7 @@ impl AccountPrivKey {
         seed: &[u8],
         account: AccountId,
     ) -> Result<AccountPrivKey, hdwallet::error::Error> {
+
         ExtendedPrivKey::with_seed(seed)?
             .derive_private_key(KeyIndex::hardened_from_normalize_index(44)?)?
             .derive_private_key(KeyIndex::hardened_from_normalize_index(params.coin_type())?)?
@@ -125,12 +126,61 @@ impl AccountPrivKey {
             .map(AccountPrivKey)
     }
 
+    /// Performs a check for zero-byte chain code in extended private key
+    /// Returns true if chain code is populated with non-zero values
+    pub fn is_bip44(&self) -> bool {
+        let chain_code = &self.0.chain_code;
+	let mut ret = false;
+        for &byte in chain_code {
+            if byte != 0 {
+		ret = true;
+            }
+	}
+	ret
+    }
+
+    pub fn from_transparent_key<P: consensus::Parameters>(
+        _params: &P,
+        transparent_key: &[u8],
+        _account: AccountId,
+    ) -> Result<AccountPrivKey, hdwallet::error::Error> {
+
+        //TODO: check content of 33rd byte, removed due to compile error, and it not really being important
+        // Verus does not support 0-flagged privkeys
+
+        let mut trimmed_tkey = [0;32];
+        trimmed_tkey.copy_from_slice(&transparent_key[..32]);
+        let private_key = secp256k1::SecretKey::from_slice(trimmed_tkey.as_ref())?;
+        let chain_code = [0; 32].to_vec();
+        let fake_extkey = ExtendedPrivKey {
+            private_key,
+            chain_code
+        };
+        Ok(AccountPrivKey(fake_extkey))
+    }
+
     pub fn from_extended_privkey(extprivkey: ExtendedPrivKey) -> Self {
         AccountPrivKey(extprivkey)
     }
 
+    /// Derives the raw secret key, for a non-HD wallet
+    pub fn derive_legacy_secret_key(
+        &self,
+    ) -> secp256k1::SecretKey {
+        self.0.private_key
+    }
+
     pub fn to_account_pubkey(&self) -> AccountPubKey {
-        AccountPubKey(ExtendedPubKey::from_private_key(&self.0))
+	let account_pubkey;
+	if self.is_bip44() {
+            account_pubkey = AccountPubKey(ExtendedPubKey::from_private_key(&self.0));
+        } else {
+            let secp = secp256k1::Secp256k1::new();
+            let secret_key = secp256k1::SecretKey::from_slice(&self.0.serialize()[..32]).unwrap();
+            let raw_pubkey = secp256k1::PublicKey::from_secret_key(&secp, &secret_key).serialize();
+            account_pubkey = AccountPubKey::deserialize_and_pad(&raw_pubkey).unwrap();
+        }
+        account_pubkey
     }
 
     /// Derives the BIP44 private spending key for the child path
@@ -189,12 +239,39 @@ impl AccountPrivKey {
 pub struct AccountPubKey(ExtendedPubKey);
 
 impl AccountPubKey {
+
+    /// Performs a check for zero-byte chain code in extended public key
+    /// Returns true if chain code is populated with non-zero values
+    pub fn is_bip44(&self) -> bool {
+        let chain_code = &self.0.chain_code;
+        let mut ret = false;
+        for &byte in chain_code {
+            if byte != 0 {
+                ret = true;
+            }
+        }
+        ret
+    }
+
     /// Derives the BIP44 public key at the external "change level" path
     /// `m/44'/<coin_type>'/<account>'/0`.
     pub fn derive_external_ivk(&self) -> Result<ExternalIvk, hdwallet::error::Error> {
-        self.0
-            .derive_public_key(KeyIndex::Normal(0))
-            .map(ExternalIvk)
+        let account_key = AccountPubKey(self.0.clone());
+	if account_key.is_bip44() {
+            self.0
+                .derive_public_key(KeyIndex::Normal(0))
+                .map(ExternalIvk)
+        } else {
+            Ok(account_key
+                .derive_ext_ivk_from_legacy_key())
+        }
+    }
+
+    pub fn derive_ext_ivk_from_legacy_key(&self) -> ExternalIvk {
+            let chain_code = [0; 32].to_vec();
+            let public_key = self.0.public_key;
+	    let fake_extended_pubkey = ExtendedPubKey { public_key, chain_code };
+            ExternalIvk(fake_extended_pubkey)
     }
 
     /// Derives the BIP44 public key at the internal "change level" path
@@ -203,6 +280,13 @@ impl AccountPubKey {
         self.0
             .derive_public_key(KeyIndex::Normal(1))
             .map(InternalIvk)
+    }
+
+    pub fn derive_int_ivk_from_legacy_key(&self) -> InternalIvk {
+            let chain_code = [0; 32].to_vec();
+            let public_key = self.0.public_key;
+	    let fake_extended_pubkey = ExtendedPubKey { public_key, chain_code };
+            InternalIvk(fake_extended_pubkey)
     }
 
     /// Derives the internal ovk and external ovk corresponding to this
@@ -242,14 +326,26 @@ impl AccountPubKey {
             chain_code,
         }))
     }
+
+    pub fn deserialize_and_pad(data: &[u8; 33]) -> Result<Self, hdwallet::error::Error> {
+        let chain_code = [0; 32].to_vec();
+        let public_key = PublicKey::from_slice(data)?;
+        Ok(AccountPubKey(ExtendedPubKey {
+            public_key,
+            chain_code,
+        }))
+    }
 }
 
 /// Derives the P2PKH transparent address corresponding to the given pubkey.
 #[deprecated(note = "This function will be removed from the public API in an upcoming refactor.")]
 pub fn pubkey_to_address(pubkey: &secp256k1::PublicKey) -> TransparentAddress {
-    TransparentAddress::PublicKeyHash(
+    let address = TransparentAddress::PublicKeyHash(
         *ripemd::Ripemd160::digest(Sha256::digest(pubkey.serialize())).as_ref(),
-    )
+    );
+
+    zcash_address::encoding::encode_b58([60],&ripemd::Ripemd160::digest(Sha256::digest(pubkey.serialize())));
+    address
 }
 
 pub(crate) mod private {
@@ -257,6 +353,7 @@ pub(crate) mod private {
     pub trait SealedChangeLevelKey {
         fn extended_pubkey(&self) -> &ExtendedPubKey;
         fn from_extended_pubkey(key: ExtendedPubKey) -> Self;
+        fn from_compressed_pubkey(key: secp256k1::PublicKey) -> Self;
     }
 }
 
@@ -288,6 +385,16 @@ pub trait IncomingViewingKey: private::SealedChangeLevelKey + std::marker::Sized
         Ok(pubkey_to_address(&child_key.public_key))
     }
 
+    #[allow(deprecated)]
+    fn derive_legacy_address(
+        &self,
+    ) -> TransparentAddress {
+        let fake_extkey = self
+            .extended_pubkey();
+        let address = pubkey_to_address(&fake_extkey.public_key);
+        address
+    }
+
     /// Searches the space of child indexes for an index that will
     /// generate a valid transparent address, and returns the resulting
     /// address and the index at which it was generated.
@@ -305,6 +412,11 @@ pub trait IncomingViewingKey: private::SealedChangeLevelKey + std::marker::Sized
                 }
             }
         }
+    }
+
+    /// Returns a transparent address for a non-hd wallet
+    fn default_legacy_address(&self) -> TransparentAddress {
+        self.derive_legacy_address()
     }
 
     fn serialize(&self) -> Vec<u8> {
@@ -334,6 +446,14 @@ pub trait IncomingViewingKey: private::SealedChangeLevelKey + std::marker::Sized
 pub struct ExternalIvk(ExtendedPubKey);
 
 impl private::SealedChangeLevelKey for ExternalIvk {
+
+    fn from_compressed_pubkey(key: PublicKey) -> Self {
+       let chain_code = [0, 32].to_vec();
+       let pubkey_bytes = key.serialize();
+       let extended_pubkey = ExtendedPubKey { public_key: key, chain_code};
+       ExternalIvk(extended_pubkey)
+    }
+
     fn extended_pubkey(&self) -> &ExtendedPubKey {
         &self.0
     }
@@ -356,6 +476,13 @@ impl IncomingViewingKey for ExternalIvk {}
 pub struct InternalIvk(ExtendedPubKey);
 
 impl private::SealedChangeLevelKey for InternalIvk {
+    fn from_compressed_pubkey(key: PublicKey) -> Self {
+       let chain_code = [0, 32].to_vec();
+       let pubkey_bytes = key.serialize();
+       let extended_pubkey = ExtendedPubKey { public_key: key, chain_code};
+       InternalIvk(extended_pubkey)
+    }
+
     fn extended_pubkey(&self) -> &ExtendedPubKey {
         &self.0
     }

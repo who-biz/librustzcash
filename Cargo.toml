@@ -16,7 +16,7 @@ members = [
 
 [workspace.package]
 edition = "2021"
-rust-version = "1.65"
+rust-version = "1.81.0"
 repository = "https://github.com/zcash/librustzcash"
 license = "MIT OR Apache-2.0"
 categories = ["cryptography::cryptocurrencies"]
@@ -116,7 +116,14 @@ aes = "0.8"
 fpe = "0.6"
 zip32 = "0.1.1"
 
+# these simply silence warnings from zcash, which don't apply to us
+[workspace.lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = [
+    'cfg(zcash_unstable, values("nu6", "zfuture"))'
+] }
+
 [profile.release]
 lto = true
 panic = 'abort'
 codegen-units = 1
+

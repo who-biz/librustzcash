@@ -714,10 +714,13 @@ where
                                     if cur_height < sapling_activation {
                                         Ok(0)
                                     } else {
-                                        Err(ScanError::TreeSizeUnknown {
-                                            protocol: ShieldedProtocol::Sapling,
-                                            at_height: cur_height,
-                                        })
+                                        let sapling_output_count: u32 = block.vtx.iter().map(|tx| tx.outputs.len()).sum::<usize>().try_into()
+                                            .expect("Sapling output count cannot exceed a u32");
+                                        Ok(sapling_output_count)
+                                        /*Err(ScanError::TreeSizeUnknown {
+                                             protocol: ShieldedProtocol::Sapling,
+                                             at_height: cur_height,
+                                        })*/
                                     }
                                 },
                             )

@@ -267,7 +267,7 @@ pub(crate) fn seed_matches_derived_account<P: consensus::Parameters>(
     // Keys are not comparable with `Eq`, but addresses are, so we derive what should
     // be equivalent addresses for each key and use those to check for key equality.
     let uivk_match =
-        match UnifiedSpendingKey::from_seed(params, &seed.expose_secret()[..], account_index) {
+        match UnifiedSpendingKey::from_seed(params, &[], &[], &seed.expose_secret()[..], account_index) {
             // If we can't derive a USK from the given seed with the account's ZIP 32
             // account index, then we immediately know the UIVK won't match because wallet
             // accounts are required to have a known UIVK.
@@ -282,7 +282,6 @@ pub(crate) fn seed_matches_derived_account<P: consensus::Parameters>(
                 },
             )?,
         };
-
     if seed_fingerprint_match != uivk_match {
         // If these mismatch, it suggests database corruption.
         Err(SqliteClientError::CorruptedData(format!(
@@ -363,9 +362,11 @@ pub(crate) fn add_account<P: consensus::Parameters>(
         AccountSource::Imported => (None, None),
     };
 
+    #[cfg(feature = "orchard")]
     let orchard_item = viewing_key
         .ufvk()
         .and_then(|ufvk| ufvk.orchard().map(|k| k.to_bytes()));
+
     let sapling_item = viewing_key
         .ufvk()
         .and_then(|ufvk| ufvk.sapling().map(|k| k.to_bytes()));
@@ -400,6 +401,8 @@ pub(crate) fn add_account<P: consensus::Parameters>(
         )
         RETURNING id;
         "#,
+
+	#[cfg(feature = "orchard")]
         named_params![
             ":account_kind": account_kind_code(kind),
             ":hd_seed_fingerprint": hd_seed_fingerprint.as_ref().map(|fp| fp.to_bytes()),
@@ -414,6 +417,22 @@ pub(crate) fn add_account<P: consensus::Parameters>(
             ":birthday_orchard_tree_size": birthday_orchard_tree_size,
             ":recover_until_height": birthday.recover_until().map(u32::from)
         ],
+
+	#[cfg(not(feature = "orchard"))]
+        named_params![
+            ":account_kind": account_kind_code(kind),
+            ":hd_seed_fingerprint": hd_seed_fingerprint.as_ref().map(|fp| fp.to_bytes()),
+            ":hd_account_index": hd_account_index.map(u32::from),
+            ":ufvk": viewing_key.ufvk().map(|ufvk| ufvk.encode(params)),
+            ":uivk": viewing_key.uivk().encode(params),
+            ":sapling_fvk_item_cache": sapling_item,
+            ":p2pkh_fvk_item_cache": transparent_item,
+            ":birthday_height": u32::from(birthday.height()),
+            ":birthday_sapling_tree_size": birthday_sapling_tree_size,
+            ":birthday_orchard_tree_size": birthday_orchard_tree_size,
+            ":recover_until_height": birthday.recover_until().map(u32::from)
+        ],
+
         |row| Ok(AccountId(row.get(0)?)),
     )?;
 
@@ -764,11 +783,19 @@ pub(crate) fn get_account_for_ufvk<P: consensus::Parameters>(
 
     let accounts = stmt
         .query_and_then::<_, SqliteClientError, _, _>(
+
+	#[cfg(feature = "orchard")]
             named_params![
                 ":orchard_fvk_item_cache": ufvk.orchard().map(|k| k.to_bytes()),
                 ":sapling_fvk_item_cache": ufvk.sapling().map(|k| k.to_bytes()),
                 ":p2pkh_fvk_item_cache": transparent_item,
             ],
+	#[cfg(not(feature = "orchard"))] 
+            named_params![
+                ":sapling_fvk_item_cache": ufvk.sapling().map(|k| k.to_bytes()),
+                ":p2pkh_fvk_item_cache": transparent_item,
+            ],
+
             |row| {
                 let account_id = row.get::<_, u32>(0).map(AccountId)?;
                 let kind = parse_account_source(row.get(1)?, row.get(2)?, row.get(3)?)?;
@@ -1166,6 +1193,7 @@ pub(crate) fn get_wallet_summary<P: consensus::Parameters>(
         }
 
         let any_spendable = is_any_spendable(tx, summary_height, table_prefix)?;
+
         let mut stmt_select_notes = tx.prepare_cached(&format!(
             "SELECT n.account_id, n.value, n.is_change, scan_state.max_priority, t.block
              FROM {table_prefix}_received_notes n
@@ -1204,12 +1232,30 @@ pub(crate) fn get_wallet_summary<P: consensus::Parameters>(
 
             let is_change = row.get::<_, bool>(2)?;
 
-            // If `max_priority` is null, this means that the note is not positioned; the note
-            // will not be spendable, so we assign the scan priority to `ChainTip` as a priority
-            // that is greater than `Scanned`
             let max_priority_raw = row.get::<_, Option<i64>>(3)?;
+
+            // If `max_priority` is null, this means that the note is not positioned in shard tree;
+            // the note will not be spendable, so we assign the scan priority to `ChainTip` as a priority
+            // that is greater than `Scanned`
+            #[cfg(not(feature = "linearscanning"))]
             let max_priority = max_priority_raw.map_or_else(
                 || Ok(ScanPriority::ChainTip),
+                |raw| {
+                    parse_priority_code(raw).ok_or_else(|| {
+                        SqliteClientError::CorruptedData(format!(
+                            "Priority code {} not recognized.",
+                            raw
+                        ))
+                    })
+                },
+            )?;
+
+            // When linear scanning is active, and we are not populating shardtree with legacy ZEC codebases
+            // we need to set priority to Scanned or Ignored such that the final condition in 'is_spendable'
+            // is met, and balance is reflected as Available, rather than Pending
+            #[cfg(feature = "linearscanning")]
+            let max_priority = max_priority_raw.map_or_else(
+                || Ok(ScanPriority::Scanned),
                 |raw| {
                     parse_priority_code(raw).ok_or_else(|| {
                         SqliteClientError::CorruptedData(format!(
@@ -2983,10 +3029,11 @@ mod tests {
             .with_account_from_sapling_activation(BlockHash([0; 32]))
             .build();
 
+        let transparentkey = SecretVec::new(st.test_transparentkey().unwrap().expose_secret().clone());
         let seed = SecretVec::new(st.test_seed().unwrap().expose_secret().clone());
         let birthday = st.test_account().unwrap().birthday().clone();
 
-        st.wallet_mut().create_account(&seed, &birthday).unwrap();
+        st.wallet_mut().create_account(&transparentkey, &seed, &birthday).unwrap();
 
         for acct_id in st.wallet().get_account_ids().unwrap() {
             assert_matches!(st.wallet().get_account(acct_id), Ok(Some(_)))

@@ -27,6 +27,11 @@ orchard.workspace = true
 zcash_address.workspace = true
 zcash_proofs.workspace = true
 
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = [
+    'cfg(zcash_unstable, values("nu6", "zfuture"))'
+] }
+
 [features]
 transparent-inputs = []
 

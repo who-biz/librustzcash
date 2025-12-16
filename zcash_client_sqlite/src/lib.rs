@@ -536,37 +536,90 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
 
     fn create_account(
         &mut self,
+        transparentkey: &SecretVec<u8>,
+        extsk: &SecretVec<u8>,
         seed: &SecretVec<u8>,
         birthday: &AccountBirthday,
     ) -> Result<(AccountId, UnifiedSpendingKey), Self::Error> {
         self.transactionally(|wdb| {
-            let seed_fingerprint =
-                SeedFingerprint::from_seed(seed.expose_secret()).ok_or_else(|| {
-                    SqliteClientError::BadAccountData(
-                        "Seed must be between 32 and 252 bytes in length.".to_owned(),
-                    )
-                })?;
-            let account_index = wallet::max_zip32_account_index(wdb.conn.0, &seed_fingerprint)?
-                .map(|a| a.next().ok_or(SqliteClientError::AccountIdOutOfRange))
-                .transpose()?
-                .unwrap_or(zip32::AccountId::ZERO);
+
+            //TODO: improve handling and do this centrally through UnifiedSpendingKey::from_seed(). we already have some checks
+            // written into there, and ideally we should expose the secretVec in as few places as possible. However Kotlin/Swift FFIs
+            // also require exposing them for decoding keys and converting types. create_account() is is called only once per account
+            if (extsk.expose_secret().len() != 0) {
+                if (extsk.expose_secret().len() != 169) {
+                    panic!("extsk must have an exact length of 169 bytes!");
+                }
+                if (seed.expose_secret().len() != 0) {
+                    // this is the only redundant condition that is also checked in usk::from_seed()
+                    panic!("Seed and extsk both present. Import them separately!"); 
+                }
+            } else {
+                // no extsk present
+                if (seed.expose_secret().len() == 0) {
+                    panic!("Neither seed, nor extsk present. We need (exclusively) one of them!"); 
+                }
+            }
+
+           //TDDO: handle transparentkey if we wish to use them here. We can either: 
+           // 1.) initialize an hd transparent addr with a seed, 2:) import a wif separately. 
+           // transparent import design is different because Verus does not yet support HD transparent wallets.
+           // proper sanity checks are not in place, as a result (for transparent member of usk import)
+ 
+            let mut account_index = zip32::AccountId::ZERO;
+
+            let seed_fingerprint;
+            if seed.expose_secret().len() > 0 {
+                seed_fingerprint =
+                    SeedFingerprint::from_seed(seed.expose_secret()).ok_or_else(|| {
+                        SqliteClientError::BadAccountData(
+                            "Seed must be between 32 and 252 bytes in length.".to_owned(),
+                        )
+                    })?;
+                account_index = wallet::max_zip32_account_index(wdb.conn.0, &seed_fingerprint)?
+                    .map(|a| a.next().ok_or(SqliteClientError::AccountIdOutOfRange))
+                    .transpose()?
+                    .unwrap_or(zip32::AccountId::ZERO);
+              } else {
+                // This isn't actually used since we started properly using AccountSource::Imported.
+                // Fingerprint and hd_index in DB populate as NULL for this case. Leaving here to appease compiler.
+                seed_fingerprint = 
+                    SeedFingerprint::from_seed(extsk.expose_secret()).ok_or_else(|| {
+                        SqliteClientError::BadAccountData(
+                            "Seed must be between 32 and 252 bytes in length.".to_owned(),
+                        )
+                    })?;
+              }
 
             let usk =
-                UnifiedSpendingKey::from_seed(&wdb.params, seed.expose_secret(), account_index)
-                    .map_err(|_| SqliteClientError::KeyDerivationError(account_index))?;
+                    UnifiedSpendingKey::from_seed(&wdb.params, transparentkey.expose_secret(), extsk.expose_secret(), seed.expose_secret(), account_index)
+                        .map_err(|_| SqliteClientError::KeyDerivationError(account_index))?;
+
             let ufvk = usk.to_unified_full_viewing_key();
 
-            let account_id = wallet::add_account(
-                wdb.conn.0,
-                &wdb.params,
-                AccountSource::Derived {
-                    seed_fingerprint,
-                    account_index,
-                },
-                wallet::ViewingKey::Full(Box::new(ufvk)),
-                birthday,
-            )?;
+            let account_id;
 
+            // account is derived if we have no transprentkey, and no extsk (i.e. we have a seed)
+            if (transparentkey.expose_secret().len() == 0) && (extsk.expose_secret().len() == 0) {
+                account_id = wallet::add_account(
+                    wdb.conn.0,
+                    &wdb.params,
+                    AccountSource::Derived {
+                       seed_fingerprint,
+                        account_index,
+                    },
+                    wallet::ViewingKey::Full(Box::new(ufvk)),
+                    birthday,
+               )?;
+            } else {
+                account_id = wallet::add_account(
+                    wdb.conn.0,
+                    &wdb.params,
+                    AccountSource::Imported,
+                    wallet::ViewingKey::Full(Box::new(ufvk)),
+                    birthday,
+               )?;
+            } 
             Ok((account_id, usk))
         })
     }

@@ -40,7 +40,6 @@ use sapling::{
     prover::{OutputProver, SpendProver},
 };
 use std::num::NonZeroU32;
-
 use super::InputSource;
 use crate::{
     address::Address,
@@ -822,10 +821,15 @@ where
                 .clone()
                 .ok_or_else(|| Error::NoSpendingKey(addr.encode(params)))?;
 
-            let secret_key = usk
-                .transparent()
-                .derive_secret_key(address_metadata.scope(), address_metadata.address_index())
-                .unwrap();
+            let secret_key;
+                if usk.transparent().is_bip44() {
+                    secret_key = usk.transparent()
+                        .derive_secret_key(address_metadata.scope(), address_metadata.address_index())
+                        .unwrap();
+                } else {
+                    secret_key = usk.transparent()
+                        .derive_legacy_secret_key();
+                }
 
             utxos_spent.push(outpoint.clone());
             builder.add_transparent_input(secret_key, outpoint, utxo)?;
@@ -925,6 +929,7 @@ where
         #[cfg(feature = "transparent-inputs")]
         if proposal_step.is_shielding() {
             return Some(sapling::keys::OutgoingViewingKey(
+               // TODO: Patch in HD Seed ovk here (?), mirroring that from verus core
                 usk.transparent()
                     .to_account_pubkey()
                     .internal_ovk()

@@ -2,7 +2,7 @@ use std::{convert::TryInto, error::Error, fmt, str::FromStr};
 
 use bech32::{self, FromBase32, ToBase32, Variant};
 use zcash_protocol::consensus::{NetworkConstants, NetworkType};
-use zcash_protocol::constants::{mainnet, regtest, testnet};
+use zcash_protocol::constants::vrsc::{mainnet, regtest, testnet};
 
 use crate::kind::unified::Encoding;
 use crate::{kind::*, AddressKind, ZcashAddress};
@@ -110,8 +110,8 @@ impl FromStr for ZcashAddress {
 
         // The rest use Base58Check.
         if let Ok(decoded) = bs58::decode(s).with_check(None).into_vec() {
-            if decoded.len() >= 2 {
-                let (prefix, net) = match decoded[..2].try_into().unwrap() {
+            if decoded.len() >= 1 {
+                let (prefix, net) = match decoded[..1].try_into().unwrap() {
                     prefix @ (mainnet::B58_PUBKEY_ADDRESS_PREFIX
                     | mainnet::B58_SCRIPT_ADDRESS_PREFIX
                     | mainnet::B58_SPROUT_ADDRESS_PREFIX) => (prefix, NetworkType::Main),
@@ -123,14 +123,15 @@ impl FromStr for ZcashAddress {
                 };
 
                 return match prefix {
+                   //TODO: if we ever support 2 byte prefixes, we need to add a byte-length constant for prefixes
                     mainnet::B58_SPROUT_ADDRESS_PREFIX | testnet::B58_SPROUT_ADDRESS_PREFIX => {
-                        decoded[2..].try_into().map(AddressKind::Sprout)
+                        decoded[1..].try_into().map(AddressKind::Sprout)
                     }
                     mainnet::B58_PUBKEY_ADDRESS_PREFIX | testnet::B58_PUBKEY_ADDRESS_PREFIX => {
-                        decoded[2..].try_into().map(AddressKind::P2pkh)
+                        decoded[1..].try_into().map(AddressKind::P2pkh)
                     }
                     mainnet::B58_SCRIPT_ADDRESS_PREFIX | testnet::B58_SCRIPT_ADDRESS_PREFIX => {
-                        decoded[2..].try_into().map(AddressKind::P2sh)
+                        decoded[1..].try_into().map(AddressKind::P2sh)
                     }
                     _ => unreachable!(),
                 }
@@ -148,11 +149,12 @@ fn encode_bech32(hrp: &str, data: &[u8], variant: Variant) -> String {
     bech32::encode(hrp, data.to_base32(), variant).expect("hrp is invalid")
 }
 
-fn encode_b58(prefix: [u8; 2], data: &[u8]) -> String {
+pub fn encode_b58(prefix: [u8; 1], data: &[u8]) -> String {
     let mut bytes = Vec::with_capacity(2 + data.len());
     bytes.extend_from_slice(&prefix);
     bytes.extend_from_slice(data);
-    bs58::encode(bytes).with_check().into_string()
+    let address = bs58::encode(bytes).with_check().into_string();
+    address
 }
 
 impl fmt::Display for ZcashAddress {

@@ -3168,6 +3168,7 @@ dependencies = [
  "proptest",
  "rand_core",
  "sapling-crypto",
+ "secp256k1",
  "secrecy",
  "subtle",
  "tracing",

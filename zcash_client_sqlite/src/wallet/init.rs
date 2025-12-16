@@ -256,21 +256,30 @@ fn sqlite_client_error_to_wallet_migration_error(e: SqliteClientError) -> Wallet
 // library *not* compiled with the `transparent-inputs` feature flag, and fail if any are present.
 pub fn init_wallet_db<P: consensus::Parameters + 'static>(
     wdb: &mut WalletDb<rusqlite::Connection, P>,
+    transparentkey: Option<SecretVec<u8>>,
+    extsk: Option<SecretVec<u8>>,
     seed: Option<SecretVec<u8>>,
 ) -> Result<(), MigratorError<WalletMigrationError>> {
-    init_wallet_db_internal(wdb, seed, &[], true)
+    init_wallet_db_internal(wdb, transparentkey, extsk, seed, &[], true)
 }
 
 fn init_wallet_db_internal<P: consensus::Parameters + 'static>(
     wdb: &mut WalletDb<rusqlite::Connection, P>,
+    _transparentkey: Option<SecretVec<u8>>,
+    extsk: Option<SecretVec<u8>>,
     seed: Option<SecretVec<u8>>,
     target_migrations: &[Uuid],
     verify_seed_relevance: bool,
 ) -> Result<(), MigratorError<WalletMigrationError>> {
+//    let transparentkey = transparentkey.map(Rc::new);
+    let extsk = extsk.map(Rc::new);
     let seed = seed.map(Rc::new);
 
     // Turn off foreign keys, and ensure that table replacement/modification
     // does not break views
+
+    //TODO: Add 'migrations' cargo feature to disable this in compilation
+
     wdb.conn
         .execute_batch(
             "PRAGMA foreign_keys = OFF;
@@ -291,6 +300,7 @@ fn init_wallet_db_internal<P: consensus::Parameters + 'static>(
             migrator.up(Some(*target_migration))?;
         }
     }
+
     wdb.conn
         .execute("PRAGMA foreign_keys = ON", [])
         .map_err(|e| MigratorError::Adapter(WalletMigrationError::from(e)))?;
@@ -300,7 +310,7 @@ fn init_wallet_db_internal<P: consensus::Parameters + 'static>(
     // but unfortunately `schemer` does not currently expose its DAG of migrations. As a
     // consequence, the caller has to choose whether or not this check should be performed
     // based upon which migrations they're asking to apply.
-    if verify_seed_relevance {
+    if verify_seed_relevance && extsk.is_none() {
         if let Some(seed) = seed {
             match wdb
                 .seed_relevance_to_derived_accounts(&seed)
@@ -1131,13 +1141,14 @@ mod tests {
         let mut db_data = WalletDb::for_path(data_file.path(), Network::TestNetwork).unwrap();
 
         let seed = [0xab; 32];
+        let transparentkey = [0xab; 32];
         let account = AccountId::ZERO;
         let secret_key = sapling::spending_key(&seed, db_data.params.coin_type(), account);
         let extfvk = secret_key.to_extended_full_viewing_key();
 
         init_0_3_0(&mut db_data, &extfvk, account).unwrap();
         assert_matches!(
-            init_wallet_db(&mut db_data, Some(Secret::new(seed.to_vec()))),
+            init_wallet_db(&mut db_data, Some(Secret::new(transparentkey.tovec())), Some(Secret::new(seed.to_vec()))),
             Ok(_)
         );
     }
@@ -1301,6 +1312,7 @@ mod tests {
         let data_file = NamedTempFile::new().unwrap();
         let mut db_data = WalletDb::for_path(data_file.path(), Network::TestNetwork).unwrap();
 
+        let transparentkey = [0xab; 32];
         let seed = [0xab; 32];
         let account = AccountId::ZERO;
         let secret_key = sapling::spending_key(&seed, db_data.params.coin_type(), account);
@@ -1308,7 +1320,7 @@ mod tests {
 
         init_autoshielding(&mut db_data, &extfvk, account).unwrap();
         assert_matches!(
-            init_wallet_db(&mut db_data, Some(Secret::new(seed.to_vec()))),
+            init_wallet_db(&mut db_data, Some(Secret::new(transparentkey.to_vect())), Some(Secret::new(seed.to_vec()))),
             Ok(_)
         );
     }
@@ -1468,9 +1480,10 @@ mod tests {
         let data_file = NamedTempFile::new().unwrap();
         let mut db_data = WalletDb::for_path(data_file.path(), Network::TestNetwork).unwrap();
 
+        let transparentkey = [0xab; 32];
         let seed = [0xab; 32];
         let account = AccountId::ZERO;
-        let secret_key = UnifiedSpendingKey::from_seed(&db_data.params, &seed, account).unwrap();
+        let secret_key = UnifiedSpendingKey::from_seed(&db_data.params, &transparentkey, &seed, account).unwrap();
 
         init_main(
             &mut db_data,
@@ -1479,7 +1492,7 @@ mod tests {
         )
         .unwrap();
         assert_matches!(
-            init_wallet_db(&mut db_data, Some(Secret::new(seed.to_vec()))),
+            init_wallet_db(&mut db_data, Some(Secret::new(transparentkey.to_vec())),  Some(Secret::new(seed.to_vec()))),
             Ok(_)
         );
     }

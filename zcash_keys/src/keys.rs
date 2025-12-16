@@ -4,6 +4,9 @@ use std::{
     fmt::{self, Display},
 };
 
+#[cfg(feature = "transparent-inputs")]
+use secp256k1::{Secp256k1};
+
 use zcash_address::unified::{self, Container, Encoding, Typecode, Ufvk, Uivk};
 use zcash_protocol::consensus;
 use zip32::{AccountId, DiversifierIndex};
@@ -40,9 +43,10 @@ use orchard::{self, keys::Scope};
 #[cfg(feature = "sapling")]
 pub mod sapling {
     pub use sapling::zip32::{
-        DiversifiableFullViewingKey, ExtendedFullViewingKey, ExtendedSpendingKey,
+        DiversifiableFullViewingKey, ExtendedFullViewingKey, ExtendedSpendingKey
     };
     use zip32::{AccountId, ChildIndex};
+
 
     /// Derives the ZIP 32 [`ExtendedSpendingKey`] for a given coin type and account from the
     /// given seed.
@@ -63,7 +67,7 @@ pub mod sapling {
     /// [`ExtendedSpendingKey`]: sapling::zip32::ExtendedSpendingKey
     pub fn spending_key(seed: &[u8], coin_type: u32, account: AccountId) -> ExtendedSpendingKey {
         if seed.len() < 32 {
-            panic!("ZIP 32 seeds MUST be at least 32 bytes");
+            panic!("ZIP 32 seeds MUST be at least 32 bytes, error while calling zcash_keys::spending_key()");
         }
 
         ExtendedSpendingKey::from_path(
@@ -92,8 +96,12 @@ fn to_transparent_child_index(j: DiversifierIndex) -> Option<NonHardenedChildInd
 pub enum DerivationError {
     #[cfg(feature = "orchard")]
     Orchard(orchard::zip32::Error),
+    #[cfg(feature = "sapling")]
+    Sapling,
     #[cfg(feature = "transparent-inputs")]
-    Transparent(hdwallet::error::Error),
+    Transparent(secp256k1::Error),
+    #[cfg(feature = "transparent-inputs")]
+    TransparentHD(hdwallet::error::Error),
 }
 
 impl Display for DerivationError {
@@ -101,8 +109,12 @@ impl Display for DerivationError {
         match self {
             #[cfg(feature = "orchard")]
             DerivationError::Orchard(e) => write!(_f, "Orchard error: {}", e),
+            #[cfg(feature = "sapling")]
+            DerivationError::Sapling => write!(_f, "Sapling derivation error"),
             #[cfg(feature = "transparent-inputs")]
             DerivationError::Transparent(e) => write!(_f, "Transparent error: {}", e),
+            #[cfg(feature = "transparent-inputs")]
+            DerivationError::TransparentHD(e) => write!(_f, "Transparent error: {}", e),
             #[cfg(not(any(feature = "orchard", feature = "transparent-inputs")))]
             other => {
                 unreachable!("Unhandled DerivationError variant {:?}", other)
@@ -209,19 +221,47 @@ pub struct UnifiedSpendingKey {
 impl UnifiedSpendingKey {
     pub fn from_seed<P: consensus::Parameters>(
         _params: &P,
+        transparentkey: &[u8],
+        extsk: &[u8],
         seed: &[u8],
         _account: AccountId,
     ) -> Result<UnifiedSpendingKey, DerivationError> {
-        if seed.len() < 32 {
-            panic!("ZIP 32 seeds MUST be at least 32 bytes");
+        if seed.len() != 0 {
+            if seed.len() < 32 {
+                panic!("ZIP 32 seeds MUST be at least 32 bytes - in from_seed()");
+            }
         }
 
+        if transparentkey.len() != 33 && transparentkey.len() != 0 {
+           panic!("transparentkey MUST be exactly 33 bytes, if present");
+        }
+
+        if extsk.len() > 0 && seed.len() > 0 {
+           panic!("Cannot use both an extsk and a seed in the same z-address derivation!");
+        }
+
+        #[cfg(feature = "transparent-inputs")]
+        {
+            let transparent_key;
+            if transparentkey.len() > 0 {
+                transparent_key = legacy::AccountPrivKey::from_transparent_key(_params, transparentkey, _account)?;
+            } else {
+                transparent_key = legacy::AccountPrivKey::from_seed(_params, seed, _account)?;
+            }
+        }
+
+        let sapling_key;
+
+        if extsk.len() > 0 {
+            sapling_key = sapling::ExtendedSpendingKey::from_bytes(&extsk).map_err(|_| DerivationError::Sapling)?;
+        } else {
+            sapling_key = sapling::spending_key(seed, _params.coin_type(), _account);
+        }
         UnifiedSpendingKey::from_checked_parts(
             #[cfg(feature = "transparent-inputs")]
-            legacy::AccountPrivKey::from_seed(_params, seed, _account)
-                .map_err(DerivationError::Transparent)?,
+            transparent_key,
             #[cfg(feature = "sapling")]
-            sapling::spending_key(seed, _params.coin_type(), _account),
+            sapling_key,
             #[cfg(feature = "orchard")]
             orchard::keys::SpendingKey::from_zip32_seed(seed, _params.coin_type(), _account)
                 .map_err(DerivationError::Orchard)?,
@@ -235,6 +275,7 @@ impl UnifiedSpendingKey {
         #[cfg(feature = "sapling")] sapling: sapling::ExtendedSpendingKey,
         #[cfg(feature = "orchard")] orchard: orchard::keys::SpendingKey,
     ) -> Result<UnifiedSpendingKey, DerivationError> {
+
         // Verify that FVK and IVK derivation succeed; we don't want to construct a USK
         // that can't derive transparent addresses.
         #[cfg(feature = "transparent-inputs")]
@@ -317,12 +358,12 @@ impl UnifiedSpendingKey {
 
         #[cfg(feature = "transparent-inputs")]
         {
-            let account_tkey = self.transparent();
+            let tkey = self.transparent();
             CompactSize::write(&mut result, usize::try_from(Typecode::P2pkh).unwrap()).unwrap();
 
-            let account_tkey_bytes = account_tkey.to_bytes();
-            CompactSize::write(&mut result, account_tkey_bytes.len()).unwrap();
-            result.write_all(&account_tkey_bytes).unwrap();
+            let tkey_bytes = tkey.to_bytes();
+            CompactSize::write(&mut result, tkey_bytes.len()).unwrap();
+            result.write_all(&tkey_bytes).unwrap();
         }
 
         result
@@ -463,12 +504,12 @@ impl UnifiedSpendingKey {
         feature = "transparent-inputs",
         any(test, feature = "test-dependencies")
     ))]
-    pub fn default_transparent_address(&self) -> (TransparentAddress, NonHardenedChildIndex) {
+    pub fn default_transparent_address(&self) -> (TransparentAddress) {
         self.transparent()
             .to_account_pubkey()
             .derive_external_ivk()
             .unwrap()
-            .default_address()
+            .default_legacy_address()
     }
 }
 
@@ -606,6 +647,13 @@ impl UnifiedAddressRequest {
 #[cfg(feature = "transparent-inputs")]
 impl From<hdwallet::error::Error> for DerivationError {
     fn from(e: hdwallet::error::Error) -> Self {
+        DerivationError::TransparentHD(e)
+    }
+}
+
+#[cfg(feature = "transparent-inputs")]
+impl From<secp256k1::Error> for DerivationError {
+    fn from(e: secp256k1::Error) -> Self {
         DerivationError::Transparent(e)
     }
 }
@@ -658,12 +706,7 @@ impl UnifiedFullViewingKey {
     ) -> Result<UnifiedFullViewingKey, DerivationError> {
         // Verify that IVK derivation succeeds; we don't want to construct a UFVK
         // that can't derive transparent addresses.
-        #[cfg(feature = "transparent-inputs")]
-        let _ = transparent
-            .as_ref()
-            .map(|t| t.derive_external_ivk())
-            .transpose()?;
-
+ 
         Ok(UnifiedFullViewingKey {
             #[cfg(feature = "transparent-inputs")]
             transparent,
@@ -1036,7 +1079,10 @@ impl UnifiedIncomingViewingKey {
         let items = items.chain(
             self.transparent
                 .as_ref()
-                .map(|tivk| tivk.serialize().try_into().unwrap())
+                .map(|tivk| { 
+                        tivk.serialize().try_into().unwrap()
+                      }
+                 )
                 .map(unified::Ivk::P2pkh),
         );
 
@@ -1123,13 +1169,16 @@ impl UnifiedIncomingViewingKey {
                 // If a transparent receiver type is requested, we must be able to construct an
                 // address; if we're unable to do so, then no Unified Address exists at this
                 // diversifier.
-                let transparent_j = to_transparent_child_index(_j)
-                    .ok_or(AddressGenerationError::InvalidTransparentChildIndex(_j))?;
 
-                transparent = Some(
-                    tivk.derive_address(transparent_j)
-                        .map_err(|_| AddressGenerationError::InvalidTransparentChildIndex(_j))?,
-                );
+                //let transparent_j = to_transparent_child_index(_j)
+                //    .ok_or(AddressGenerationError::InvalidTransparentChildIndex(_j))?;
+
+                //transparent = Some(
+                //    tivk.derive_address(transparent_j)
+                //        .map_err(|_| AddressGenerationError::InvalidTransparentChildIndex(_j))?,
+                //);
+
+                transparent = Some(tivk.derive_legacy_address());
             } else {
                 return Err(AddressGenerationError::KeyNotAvailable(Typecode::P2pkh));
             }
@@ -1216,6 +1265,8 @@ pub mod testing {
                 .prop_map(move |account| {
                     UnifiedSpendingKey::from_seed(
                         &params,
+                        &[],
+                        &[],
                         &seed,
                         AccountId::try_from(account & ((1 << 31) - 1)).unwrap(),
                     )

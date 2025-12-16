@@ -6,7 +6,7 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::ops::{Add, Bound, RangeBounds, Sub};
 
-use crate::constants::{mainnet, regtest, testnet};
+use crate::constants::vrsc::{mainnet, regtest, testnet};
 
 /// A wrapper type representing blockchain heights.
 ///
@@ -176,20 +176,20 @@ pub trait NetworkConstants: Clone {
     /// Defined in the [Zcash Protocol Specification section 5.6.3][sproutpaymentaddrencoding].
     ///
     /// [sproutpaymentaddrencoding]: https://zips.z.cash/protocol/protocol.pdf#sproutpaymentaddrencoding
-    fn b58_sprout_address_prefix(&self) -> [u8; 2];
+    fn b58_sprout_address_prefix(&self) -> [u8; 1];
 
     /// Returns the human-readable prefix for Base58Check-encoded transparent
     /// pay-to-public-key-hash payment addresses for the network to which this NetworkConstants value
     /// applies.
     ///
     /// [`TransparentAddress::PublicKey`]: zcash_primitives::legacy::TransparentAddress::PublicKey
-    fn b58_pubkey_address_prefix(&self) -> [u8; 2];
+    fn b58_pubkey_address_prefix(&self) -> [u8; 1];
 
     /// Returns the human-readable prefix for Base58Check-encoded transparent pay-to-script-hash
     /// payment addresses for the network to which this NetworkConstants value applies.
     ///
     /// [`TransparentAddress::Script`]: zcash_primitives::legacy::TransparentAddress::Script
-    fn b58_script_address_prefix(&self) -> [u8; 2];
+    fn b58_script_address_prefix(&self) -> [u8; 1];
 
     /// Returns the Bech32-encoded human-readable prefix for TEX addresses, for the
     /// network to which this `NetworkConstants` value applies.
@@ -249,7 +249,7 @@ impl NetworkConstants for NetworkType {
         }
     }
 
-    fn b58_sprout_address_prefix(&self) -> [u8; 2] {
+    fn b58_sprout_address_prefix(&self) -> [u8; 1] {
         match self {
             NetworkType::Main => mainnet::B58_SPROUT_ADDRESS_PREFIX,
             NetworkType::Test => testnet::B58_SPROUT_ADDRESS_PREFIX,
@@ -257,7 +257,7 @@ impl NetworkConstants for NetworkType {
         }
     }
 
-    fn b58_pubkey_address_prefix(&self) -> [u8; 2] {
+    fn b58_pubkey_address_prefix(&self) -> [u8; 1] {
         match self {
             NetworkType::Main => mainnet::B58_PUBKEY_ADDRESS_PREFIX,
             NetworkType::Test => testnet::B58_PUBKEY_ADDRESS_PREFIX,
@@ -265,7 +265,7 @@ impl NetworkConstants for NetworkType {
         }
     }
 
-    fn b58_script_address_prefix(&self) -> [u8; 2] {
+    fn b58_script_address_prefix(&self) -> [u8; 1] {
         match self {
             NetworkType::Main => mainnet::B58_SCRIPT_ADDRESS_PREFIX,
             NetworkType::Test => testnet::B58_SCRIPT_ADDRESS_PREFIX,
@@ -315,15 +315,15 @@ impl<P: Parameters> NetworkConstants for P {
         self.network_type().hrp_sapling_payment_address()
     }
 
-    fn b58_sprout_address_prefix(&self) -> [u8; 2] {
+    fn b58_sprout_address_prefix(&self) -> [u8; 1] {
         self.network_type().b58_sprout_address_prefix()
     }
 
-    fn b58_pubkey_address_prefix(&self) -> [u8; 2] {
+    fn b58_pubkey_address_prefix(&self) -> [u8; 1] {
         self.network_type().b58_pubkey_address_prefix()
     }
 
-    fn b58_script_address_prefix(&self) -> [u8; 2] {
+    fn b58_script_address_prefix(&self) -> [u8; 1] {
         self.network_type().b58_script_address_prefix()
     }
 
@@ -348,12 +348,12 @@ impl Parameters for MainNetwork {
 
     fn activation_height(&self, nu: NetworkUpgrade) -> Option<BlockHeight> {
         match nu {
-            NetworkUpgrade::Overwinter => Some(BlockHeight(347_500)),
-            NetworkUpgrade::Sapling => Some(BlockHeight(419_200)),
-            NetworkUpgrade::Blossom => Some(BlockHeight(653_600)),
-            NetworkUpgrade::Heartwood => Some(BlockHeight(903_000)),
-            NetworkUpgrade::Canopy => Some(BlockHeight(1_046_400)),
-            NetworkUpgrade::Nu5 => Some(BlockHeight(1_687_104)),
+            NetworkUpgrade::Overwinter => Some(BlockHeight(227_520)),
+            NetworkUpgrade::Sapling => Some(BlockHeight(227_520)),
+            NetworkUpgrade::Blossom => None,
+            NetworkUpgrade::Heartwood => None,
+            NetworkUpgrade::Canopy => None,
+            NetworkUpgrade::Nu5 => None,
             #[cfg(zcash_unstable = "nu6")]
             NetworkUpgrade::Nu6 => None,
             #[cfg(zcash_unstable = "zfuture")]
