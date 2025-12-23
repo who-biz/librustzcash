@@ -64,7 +64,7 @@ impl CryptoRng for DummyRng {}
 pub struct RpcParams {
     pub seed: Option<String>,
     pub spending_key: Option<String>,
-    pub hd_index: u32,
+    pub hd_index: Option<u32>,
     pub encryption_index: u32,
     pub from_id: Option<String>,
     pub to_id: Option<String>,
@@ -218,6 +218,10 @@ pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
         let coin_type_key = purpose_key.derive_child(ChildIndex::hardened(133));
         coin_type_key.derive_child(ChildIndex::hardened(params.hd_index))
     } else if let Some(sk_hex) = params.spending_key {
+        // if an hd_index is provided, indicate improper usage to caller
+        if let Some(hd_index) = params.hd_index {
+            return Err(anyhow!("Spending key, and hdindex provided! If an hdindex is provided, seed must be an HD wallet seed for which (hdindex) represents a valid address index!"));
+        }
         // if a spending key is provided, decode and use it directly
         let sk_bytes = hex::decode(sk_hex)?;
         let sk_bytes_array: [u8; 169] = sk_bytes
