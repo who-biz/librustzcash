@@ -210,13 +210,18 @@ pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
         if seed_bytes.len() != 32 && seed_bytes.len() != 64 {
             return Err(anyhow!("Seed for encryption address must be 32 or 64 bytes (hex)"));
         }
-
         // derive base spending key using the daemon's fixed path m/32'/coin_type'/hd_index'
         let master_sk = ExtendedSpendingKey::master(&seed_bytes);
         let purpose_key = master_sk.derive_child(ChildIndex::hardened(32));
         // Use Verus/your code's coin type (133 used previously). If you have dynamic coin type, replace here.
         let coin_type_key = purpose_key.derive_child(ChildIndex::hardened(133));
-        coin_type_key.derive_child(ChildIndex::hardened(params.hd_index))
+        if let Some(hd_index) = params.hd_index {
+            // use hd_index, if provided
+            coin_type_key.derive_child(ChildIndex::hardened(hd_index))
+        } else {
+            // use default 0 index if not provided
+            coin_type_key.derive_child(ChildIndex::hardened(0))
+        }
     } else if let Some(sk_hex) = params.spending_key {
         // if an hd_index is provided, indicate improper usage to caller
         if let Some(hd_index) = params.hd_index {
