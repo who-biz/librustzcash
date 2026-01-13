@@ -21,6 +21,8 @@ use zcash_primitives::{
 use blake2b_simd::{Hash as Blake2bHash};
 use bech32::{self, ToBase32, Variant};
 
+use secrecy::{ExposeSecret, SecretVec};
+
 mod key_encoding {
         use super::*;
         const FVK_PREFIX: &str = "zxviews";
@@ -62,12 +64,12 @@ impl CryptoRng for DummyRng {}
 
 
 pub struct RpcParams {
-    pub seed: Option<String>,
-    pub spending_key: Option<String>,
+    pub seed: Option<SecretVec>,
+    pub spending_key: Option<SecretVec>,
     pub hd_index: Option<u32>,
     pub encryption_index: u32,
-    pub from_id: Option<String>,
-    pub to_id: Option<String>,
+    pub from_id: Option<String>, //TODO: should we treat this as secret information?
+    pub to_id: Option<String>, //TODO: same here
     pub return_secret: bool,
 }
 
@@ -204,14 +206,17 @@ pub fn generate_spending_key(seed_hex: String, hd_index: u32) -> Result<String> 
 // between two parties, identified by from_id` and `to_id
 pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
     // determine the base spending key from either a seed or a provided key
-    let base_sk = if let Some(seed_hex) = params.seed {
+    let base_sk = if let Some(seed_bytes) = params.seed {
         // if a seed is provided, derive the account key using the hd_index
-        let seed_bytes = hex::decode(seed_hex)?;
+
+        // Biz: we pass through byteArray now, not needed
+        // let seed_bytes = hex::decode(seed_hex)?;
+
         if seed_bytes.len() != 32 && seed_bytes.len() != 64 {
             return Err(anyhow!("Seed for encryption address must be 32 or 64 bytes (hex)"));
         }
         // derive base spending key using the daemon's fixed path m/32'/coin_type'/hd_index'
-        let master_sk = ExtendedSpendingKey::master(&seed_bytes);
+        let master_sk = ExtendedSpendingKey::master(&seed_bytes.expose_secret());
         let purpose_key = master_sk.derive_child(ChildIndex::hardened(32));
         // Use Verus/your code's coin type (133 used previously). If you have dynamic coin type, replace here.
         let coin_type_key = purpose_key.derive_child(ChildIndex::hardened(133));
@@ -222,21 +227,28 @@ pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
             // use default 0 index if not provided
             coin_type_key.derive_child(ChildIndex::hardened(0))
         }
-    } else if let Some(sk_hex) = params.spending_key {
+    } else if let Some(sk_bytes) = params.spending_key {
         // if an hd_index is provided, indicate improper usage to caller
         if let Some(hd_index) = params.hd_index {
             return Err(anyhow!("Spending key, and hdindex provided! If an hdindex is provided, seed must be an HD wallet seed for which (hdindex) represents a valid address index!"));
         }
-        // if a spending key is provided, decode and use it directly
-        let sk_bytes = hex::decode(sk_hex)?;
-        let sk_bytes_array: [u8; 169] = sk_bytes
-            .try_into()
-            .map_err(|_| anyhow!("Invalid spending key length"))?;
-        ExtendedSpendingKey::from_bytes(&sk_bytes_array)
+        // if a spending key is provided, use it directly
+
+        // Biz: we pass through byteArray now, not needed
+        //let sk_bytes = hex::decode(sk_hex)?;
+        
+        //TODO: see if we can eliminate expose_secret() call here - does from_bytes() check length?
+
+        //let sk_bytes_array: [u8; 169] = sk_bytes
+        //    .try_into()
+        //    .map_err(|_| anyhow!("Invalid spending key length"))?;
+        ExtendedSpendingKey::from_bytes(&sk_bytes.expose_secret())
             .map_err(|_| anyhow!("Failed to parse spending key"))?
     } else {
         return Err(anyhow!("Must provide 'seed' or 'spendingKey'"));
     };
+
+    //TODO: use SecretVec here
 
     // serialize base spending key
     let mut base_sk_bytes = Vec::new();
