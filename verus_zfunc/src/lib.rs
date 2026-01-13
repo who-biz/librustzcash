@@ -63,13 +63,16 @@ impl RngCore for DummyRng {
 impl CryptoRng for DummyRng {}
 
 
-pub struct RpcParams {
-    pub seed: Option<SecretVec>,
-    pub spending_key: Option<SecretVec>,
+//TODO: check all of the below 'pub' members
+// anywhere we can prevent exposing this info, we should do so
+// we need to lock down RpcParams, ChannelKeys, Encrypted Payload, and DecryptParams as much as possible
+pub struct RpcParams<S> {
+    pub seed: Option<SecretVec<S>>,
+    pub spending_key: Option<SecretVec<S>>,
     pub hd_index: Option<u32>,
     pub encryption_index: u32,
-    pub from_id: Option<String>, //TODO: should we treat this as secret information?
-    pub to_id: Option<String>, //TODO: same here
+    pub from_id: Option<String>, //TODO: use SecretString here
+    pub to_id: Option<String>, //TODO: use SecretString here 
     pub return_secret: bool,
 }
 
