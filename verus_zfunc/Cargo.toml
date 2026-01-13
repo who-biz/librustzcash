@@ -9,30 +9,34 @@ categories.workspace = true
 
 [lib]
 crate-type = ["cdylib", "rlib"]
+test = false
+doctest = false
 
 [[bin]]
 name = "run_test"
 path = "src/bin/run_test.rs"
+required-features = ["run-test-bin"]
 
 [dependencies]
+secrecy.workspace = true
 hex = "0.4.3"
 rand_core = { version = "0.6.4", features = ["getrandom"] }
 rand = "0.8.5"
-jubjub = "0.10.0"
-blake2b_simd = "1.0.3"
+jubjub.workspace = true
+blake2b_simd.workspace = true
 getrandom = { version = "0.2.16", features = ["js"] }
 chacha20poly1305 = { version = "0.10.1", features = ["heapless"] }
 sha2 = "0.10.8"
 anyhow = "1.0"
 bech32 = "0.9"
-ripemd = "0.1"
+ripemd.workspace = true
 group = "0.13.0"
 
-
-
 zcash_keys = { workspace = true, features = ["sapling"] }
-zcash_note_encryption = { workspace = true }
-zcash_primitives = { workspace = true }
+zcash_note_encryption.workspace = true
+zcash_primitives.workspace = true
 orchard = { workspace = true, optional = true }
-sapling = { workspace = true, package = "sapling-crypto" }
+sapling.workspace = true
 
+[features]
+run-test-bin = []

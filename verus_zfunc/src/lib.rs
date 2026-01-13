@@ -77,7 +77,7 @@ pub struct RpcParams {
     return_secret: bool,
 }
 
-impl Zeroize for RpcParams {
+/*impl Zeroize for RpcParams {
     fn zeroize(&mut self) {
         if let Some(seed) = self.seed.as_mut() {
             seed.zeroize();
@@ -100,7 +100,7 @@ impl Zeroize for RpcParams {
         self.from_id = None;
         self.to_id = None;
     }
-}
+}*/
 
 pub struct ChannelKeys {
     pub address: String,
@@ -241,7 +241,8 @@ pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
         // Biz: we pass through byteArray now, not needed
         // let seed_bytes = hex::decode(seed_hex)?;
 
-        if seed_bytes.len() != 32 && seed_bytes.len() != 64 {
+        //TODO: see if we can avoid calling expose_secret() here
+        if seed_bytes.expose_secret().len() != 32 && seed_bytes.expose_secret().len() != 64 {
             return Err(anyhow!("Seed for encryption address must be 32 or 64 bytes (hex)"));
         }
         // derive base spending key using the daemon's fixed path m/32'/coin_type'/hd_index'
