@@ -18,7 +18,6 @@ path = "src/bin/run_test.rs"
 hex = "0.4.3"
 rand_core = { version = "0.6.4", features = ["getrandom"] }
 rand = "0.8.5"
-secrecy = "0.8.0"
 jubjub = "0.10.0"
 blake2b_simd = "1.0.3"
 getrandom = { version = "0.2.16", features = ["js"] }
