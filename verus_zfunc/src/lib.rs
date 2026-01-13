@@ -68,13 +68,13 @@ impl CryptoRng for DummyRng {}
 // we need to lock down RpcParams, ChannelKeys, Encrypted Payload, and DecryptParams as much as possible
 //#[derive(Zeroize, ZeroizeOnDrop)]
 pub struct RpcParams {
-    seed: Option<SecretVec<u8>>,
-    spending_key: Option<SecretVec<u8>>,
-    hd_index: Option<u32>,
-    encryption_index: u32,
-    from_id: Option<String>, // TODO: use SecretString here
-    to_id: Option<String>,   // TODO: use SecretString here
-    return_secret: bool,
+    pub seed: Option<SecretVec<u8>>,
+    pub spending_key: Option<SecretVec<u8>>,
+    pub hd_index: Option<u32>,
+    pub encryption_index: u32,
+    pub from_id: Option<String>, // TODO: use SecretString here
+    pub to_id: Option<String>,   // TODO: use SecretString here
+    pub return_secret: bool,
 }
 
 /*impl Zeroize for RpcParams {
