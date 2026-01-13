@@ -21,7 +21,7 @@ use zcash_primitives::{
 use blake2b_simd::{Hash as Blake2bHash};
 use bech32::{self, ToBase32, Variant};
 
-use secrecy::{ExposeSecret, SecretVec};
+use secrecy::{ExposeSecret, SecretVec, Zeroize};
 
 mod key_encoding {
         use super::*;
@@ -67,13 +67,38 @@ impl CryptoRng for DummyRng {}
 // anywhere we can prevent exposing this info, we should do so
 // we need to lock down RpcParams, ChannelKeys, Encrypted Payload, and DecryptParams as much as possible
 pub struct RpcParams<S> {
-    pub seed: Option<SecretVec<S>>,
-    pub spending_key: Option<SecretVec<S>>,
-    pub hd_index: Option<u32>,
-    pub encryption_index: u32,
-    pub from_id: Option<String>, //TODO: use SecretString here
-    pub to_id: Option<String>, //TODO: use SecretString here 
-    pub return_secret: bool,
+    seed: Option<SecretVec<S>>,
+    spending_key: Option<SecretVec<S>>,
+    hd_index: Option<u32>,
+    encryption_index: u32,
+    from_id: Option<String>, // TODO: use SecretString here
+    to_id: Option<String>,   // TODO: use SecretString here
+    return_secret: bool,
+}
+
+impl Zeroize for RpcParams<S> {
+    fn zeroize(&mut self) {
+        if let Some(seed) = self.seed.as_mut() {
+            seed.zeroize();
+        }
+        if let Some(sk) = self.spending_key.as_mut() {
+            sk.zeroize();
+        }
+        if let Some(from) = self.from_id.as_mut() {
+            from.zeroize();
+        }
+        if let Some(to) = self.to_id.as_mut() {
+            to.zeroize();
+        }
+        self.hd_index.zeroize();
+        self.encryption_index = 0;
+        self.return_secret = false;
+
+        self.seed = None;
+        self.spending_key = None;
+        self.from_id = None;
+        self.to_id = None;
+    }
 }
 
 pub struct ChannelKeys {
@@ -207,7 +232,7 @@ pub fn generate_spending_key(seed_hex: String, hd_index: u32) -> Result<String> 
 
 // generates a unique, deterministic encryption address for a communication channel
 // between two parties, identified by from_id` and `to_id
-pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
+pub fn z_getencryptionaddress(params: RpcParams<S>) -> Result<ChannelKeys> {
     // determine the base spending key from either a seed or a provided key
     let base_sk = if let Some(seed_bytes) = params.seed {
         // if a seed is provided, derive the account key using the hd_index
