@@ -270,7 +270,7 @@ pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
 
     // if from_id present, append byte-flipped hash160
     if let Some(from_id_bytes) = params.from_id.as_ref() {
-        if from_id_bytes.len() != 20 {
+        if from_id_bytes.len() == 20 {
             // serialize together with base_sk, byte-flipping for little-endian while doing so
             encryption_seed_bytes.extend(from_id_bytes.iter().rev().copied());
         } else {
@@ -283,7 +283,7 @@ pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
 
     // if to_id present, append byte-flipped hash160
     if let Some(to_id_bytes) = params.to_id.as_ref() {
-        if to_id_bytes.len() != 20 {
+        if to_id_bytes.len() == 20 {
             // serialize together with base_sk + from_id, byte-flipping for little-endian while doing so
             encryption_seed_bytes.extend(to_id_bytes.iter().rev().copied());  
         } else {
