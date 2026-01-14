@@ -66,41 +66,15 @@ impl CryptoRng for DummyRng {}
 //TODO: check all of the below 'pub' members
 // anywhere we can prevent exposing this info, we should do so
 // we need to lock down RpcParams, ChannelKeys, Encrypted Payload, and DecryptParams as much as possible
-//#[derive(Zeroize, ZeroizeOnDrop)]
 pub struct RpcParams {
     pub seed: Option<SecretVec<u8>>,
     pub spending_key: Option<SecretVec<u8>>,
     pub hd_index: Option<u32>,
     pub encryption_index: u32,
-    pub from_id: Option<String>, // TODO: use SecretString here
-    pub to_id: Option<String>,   // TODO: use SecretString here
+    pub from_id: Option<Vec<u8>>,
+    pub to_id: Option<Vec<u8>>,
     pub return_secret: bool,
 }
-
-/*impl Zeroize for RpcParams {
-    fn zeroize(&mut self) {
-        if let Some(seed) = self.seed.as_mut() {
-            seed.zeroize();
-        }
-        if let Some(sk) = self.spending_key.as_mut() {
-            sk.zeroize();
-        }
-        if let Some(from) = self.from_id.as_mut() {
-            from.zeroize();
-        }
-        if let Some(to) = self.to_id.as_mut() {
-            to.zeroize();
-        }
-        self.hd_index.zeroize();
-        self.encryption_index = 0;
-        self.return_secret = false;
-
-        self.seed = None;
-        self.spending_key = None;
-        self.from_id = None;
-        self.to_id = None;
-    }
-}*/
 
 pub struct ChannelKeys {
     pub address: String,
@@ -238,10 +212,7 @@ pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
     let base_sk = if let Some(seed_bytes) = params.seed {
         // if a seed is provided, derive the account key using the hd_index
 
-        // Biz: we pass through byteArray now, not needed
-        // let seed_bytes = hex::decode(seed_hex)?;
-
-        //TODO: see if we can avoid calling expose_secret() here
+        //TODO: see if we can avoid calling expose_secret() here, check this in a higher level
         if seed_bytes.expose_secret().len() != 32 && seed_bytes.expose_secret().len() != 64 {
             return Err(anyhow!("Seed for encryption address must be 32 or 64 bytes (hex)"));
         }
@@ -259,36 +230,28 @@ pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
         }
     } else if let Some(sk_bytes) = params.spending_key {
         // if an hd_index is provided, indicate improper usage to caller
-        if let Some(hd_index) = params.hd_index {
+        if params.hd_index.is_some() {
             return Err(anyhow!("Spending key, and hdindex provided! If an hdindex is provided, seed must be an HD wallet seed for which (hdindex) represents a valid address index!"));
         }
         // if a spending key is provided, use it directly
 
-        // Biz: we pass through byteArray now, not needed
-        //let sk_bytes = hex::decode(sk_hex)?;
-        
-        //TODO: see if we can eliminate expose_secret() call here - does from_bytes() check length?
-
-        //let sk_bytes_array: [u8; 169] = sk_bytes
-        //    .try_into()
-        //    .map_err(|_| anyhow!("Invalid spending key length"))?;
+        // ExtendedSpendingKey::from_bytes() checks length internally and throws error if not 169 bytes
         ExtendedSpendingKey::from_bytes(&sk_bytes.expose_secret())
             .map_err(|_| anyhow!("Failed to parse spending key"))?
     } else {
         return Err(anyhow!("Must provide 'seed' or 'spendingKey'"));
     };
 
-    //TODO: use SecretVec here
+    // serialize base_sk, prior to adding fromid & toid to same serialized value
+    let mut encryption_seed_bytes = Vec::new();
+    base_sk.write(&mut encryption_seed_bytes)?;     
 
-    // serialize base spending key
-    let mut base_sk_bytes = Vec::new();
-    base_sk.write(&mut base_sk_bytes)?;
 
-    // concatenate bytes and then hash, exactly like the JNI function ---
-    let mut encryption_seed_bytes = base_sk_bytes.clone();
+
+    //TODO: figure out if we need to be doing this at all for strings.  I would think just hex can work.
 
     // helper to parse id param into 20-byte hash160 (either accept 40-hex hex or compute RIPEMD160(SHA256(text)))
-    fn id_to_h160_bytes(id: &str) -> Result<[u8; 20]> {
+    /*fn id_to_h160_bytes(id: &str) -> Result<[u8; 20]> {
         // fast path: if caller provided 40 hex chars, treat as the h160 directly
         if id.len() == 40 && id.chars().all(|c| c.is_ascii_hexdigit()) {
             let b = hex::decode(id)?;
@@ -303,28 +266,32 @@ pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
         let rip = Ripemd160::digest(&sha);
         let arr: [u8; 20] = rip.into();
         Ok(arr)
-    }
+    }*/
 
     // if from_id present, append byte-flipped hash160
-    if let Some(id_str) = params.from_id.as_ref() {
-        if !id_str.is_empty() {
-            let mut h160 = id_to_h160_bytes(id_str)?;
-            h160.reverse(); // byte-flip to match daemon little-endian ordering
-            encryption_seed_bytes.extend_from_slice(&h160);
-        }
-    else {
-            encryption_seed_bytes.push(0u8);
+    if let Some(from_id_bytes) = params.from_id.as_ref() {
+        if from_id_bytes.len() != 20 {
+            // serialize together with base_sk, byte-flipping for little-endian while doing so
+            encryption_seed_bytes.extend(from_id_bytes.iter().rev().copied());
+        } else {
+            return Err(anyhow!("from_id parameter provided, but byte length is incorrect! Actual: {:?}, Expected 20", from_id_bytes.len()));
         }
     } else {
+        // 0 serialized in place if not 20-byte hash not present
         encryption_seed_bytes.push(0u8);
     }
+
     // if to_id present, append byte-flipped hash160
-    if let Some(id_str) = params.to_id.as_ref() {
-        if !id_str.is_empty() {
-            let mut h160 = id_to_h160_bytes(id_str)?;
-            h160.reverse(); // byte-flip to match daemon little-endian ordering
-            encryption_seed_bytes.extend_from_slice(&h160);
+    if let Some(to_id_bytes) = params.to_id.as_ref() {
+        if to_id_bytes.len() != 20 {
+            // serialize together with base_sk + from_id, byte-flipping for little-endian while doing so
+            encryption_seed_bytes.extend(to_id_bytes.iter().rev().copied());  
+        } else {
+            return Err(anyhow!("to_id parameter provided, but byte length is incorrect! Actual: {:?}, Expected 20", to_id_bytes.len()));
         }
+    } else {
+        // 0 serialized in place if not 20-byte hash not present
+        encryption_seed_bytes.push(0u8);
     }
 
     // here is our unique, deterministic seed for the communication channel
