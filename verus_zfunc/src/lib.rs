@@ -21,14 +21,19 @@ use zcash_primitives::{
 use blake2b_simd::{Hash as Blake2bHash};
 use bech32::{self, ToBase32, Variant};
 
-use secrecy::{ExposeSecret, SecretVec, /*Zeroize*/};
+use secrecy::{ExposeSecret, SecretVec, Secret};
+
+const VERUS_COIN_TYPE: u32 = 133;
 
 mod key_encoding {
         use super::*;
         const FVK_PREFIX: &str = "zxviews";
         const SK_PREFIX: &str = "secret-extended-key-main";
 
-    pub fn encode_xfvk(xfvk: &ExtendedFullViewingKey) -> Result<String, anyhow::Error> {
+    // (Biz) Below was improperly named.  whenever we include a 'dk', it is a diversifiable fvk
+    // in this case, we also include extended information. This means that: anywhere this code also
+    // includes an 'xfvk', we're populating multiple struct members with totally redundant data
+    pub fn encode_extended_dfvk(xfvk: &ExtendedFullViewingKey) -> Result<String, anyhow::Error> {
         let mut serialized = Vec::with_capacity(169);
 
         // This is the correct serialization order according to ZIP 32
@@ -78,11 +83,12 @@ pub struct RpcParams {
 
 pub struct ChannelKeys {
     pub address: String,
-    pub fvk: String,
-    pub fvk_hex: String,      // hex encoded XFVK
-    pub dfvk_hex: String,     // hex encoded DDFVK
-    pub spending_key: Option<String>,
-    pub ivk: Option<String>
+    //pub fvk: String, // redundant
+    //pub fvk_hex: String, // redundant
+    pub dfvk_bytes: SecretVec<u8>,
+    pub spending_key_bytes: Option<SecretVec<u8>>,
+    //TODO: (Biz) should this actually be optional?
+    pub ivk_bytes: Option<SecretVec<u8>>
 }
 
 pub struct EncryptedPayload {
@@ -194,7 +200,7 @@ pub fn generate_spending_key(seed_hex: String, hd_index: u32) -> Result<String> 
 
     let master_sk = ExtendedSpendingKey::master(&seed_bytes);
     let purpose_key = master_sk.derive_child(ChildIndex::hardened(32));
-    let coin_type_key = purpose_key.derive_child(ChildIndex::hardened(133));
+    let coin_type_key = purpose_key.derive_child(ChildIndex::hardened(VERUS_COIN_TYPE));
     let account_sk = coin_type_key.derive_child(ChildIndex::hardened(hd_index));
 
     // serialize the derived key to bytes
@@ -216,11 +222,10 @@ pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
         if seed_bytes.expose_secret().len() != 32 && seed_bytes.expose_secret().len() != 64 {
             return Err(anyhow!("Seed for encryption address must be 32 or 64 bytes (hex)"));
         }
-        // derive base spending key using the daemon's fixed path m/32'/coin_type'/hd_index'
+        // derive base spending key fixed path m/32'/coin_type'/hd_index'
         let master_sk = ExtendedSpendingKey::master(&seed_bytes.expose_secret());
         let purpose_key = master_sk.derive_child(ChildIndex::hardened(32));
-        // Use Verus/your code's coin type (133 used previously). If you have dynamic coin type, replace here.
-        let coin_type_key = purpose_key.derive_child(ChildIndex::hardened(133));
+        let coin_type_key = purpose_key.derive_child(ChildIndex::hardened(VERUS_COIN_TYPE));
         if let Some(hd_index) = params.hd_index {
             // use hd_index, if provided
             coin_type_key.derive_child(ChildIndex::hardened(hd_index))
@@ -229,13 +234,12 @@ pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
             coin_type_key.derive_child(ChildIndex::hardened(0))
         }
     } else if let Some(sk_bytes) = params.spending_key {
-        // if an hd_index is provided, indicate improper usage to caller
         if params.hd_index.is_some() {
             return Err(anyhow!("Spending key, and hdindex provided! If an hdindex is provided, seed must be an HD wallet seed for which (hdindex) represents a valid address index!"));
         }
         // if a spending key is provided, use it directly
 
-        // ExtendedSpendingKey::from_bytes() checks length internally and throws error if not 169 bytes
+        // (Biz) ExtendedSpendingKey::from_bytes() checks length internally, throws error if not 169 bytes
         ExtendedSpendingKey::from_bytes(&sk_bytes.expose_secret())
             .map_err(|_| anyhow!("Failed to parse spending key"))?
     } else {
@@ -246,9 +250,8 @@ pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
     let mut encryption_seed_bytes = Vec::new();
     base_sk.write(&mut encryption_seed_bytes)?;     
 
-
-
-    //TODO: figure out if we need to be doing this at all for strings.  I would think just hex can work.
+    //TODO: (Biz) I don't think we should handle these VerusID->uint160 conversions on this level
+    // we assume its a 20-byte hash as a result, and leave VerusID hashing responsibility to caller
 
     // helper to parse id param into 20-byte hash160 (either accept 40-hex hex or compute RIPEMD160(SHA256(text)))
     /*fn id_to_h160_bytes(id: &str) -> Result<[u8; 20]> {
@@ -268,7 +271,6 @@ pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
         Ok(arr)
     }*/
 
-    // if from_id present, append byte-flipped hash160
     if let Some(from_id_bytes) = params.from_id.as_ref() {
         if from_id_bytes.len() == 20 {
             // serialize together with base_sk, byte-flipping for little-endian while doing so
@@ -281,10 +283,9 @@ pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
         encryption_seed_bytes.push(0u8);
     }
 
-    // if to_id present, append byte-flipped hash160
     if let Some(to_id_bytes) = params.to_id.as_ref() {
         if to_id_bytes.len() == 20 {
-            // serialize together with base_sk + from_id, byte-flipping for little-endian while doing so
+            // serialize together with (base_sk << from_id), byte-flipping for little-endian while doing so
             encryption_seed_bytes.extend(to_id_bytes.iter().rev().copied());  
         } else {
             return Err(anyhow!("to_id parameter provided, but byte length is incorrect! Actual: {:?}, Expected 20", to_id_bytes.len()));
@@ -295,45 +296,57 @@ pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
     }
 
     // here is our unique, deterministic seed for the communication channel
-    let channel_seed: [u8; 32] = Sha256::digest(&encryption_seed_bytes).into();
+    let channel_seed = Secret::<[u8; 32]>::new(Sha256::digest(&encryption_seed_bytes).into());
+
+
+    //TODO: (Biz) we can almost certainly get rid of all these intermediate variables below,
+    // we are only using the last variable in this anyway, the rest are meaningless and incorrect
+
+    /*let channel_master_sk = ExtendedSpendingKey::master(channel_seed.expose_secret());
+    let channel_purpose = channel_master_sk.derive_child(ChildIndex::hardened(32));
+    let channel_coin = channel_purpose.derive_child(ChildIndex::hardened(VERUS_COIN_TYPE)); // use same coin type as above
+    let final_sk = channel_coin.derive_child(ChildIndex::hardened(params.encryption_index));*/
 
     // use the new channel seed to derive the final key for this channel
-    // using the `encryption_index` but preserving the daemon's path m/32'/coin_type'/encryption_index'
-    let channel_master_sk = ExtendedSpendingKey::master(&channel_seed);
-    let channel_purpose = channel_master_sk.derive_child(ChildIndex::hardened(32));
-    let channel_coin = channel_purpose.derive_child(ChildIndex::hardened(133)); // use same coin type as above
-    let final_sk = channel_coin.derive_child(ChildIndex::hardened(params.encryption_index));
+    // use caller-provided encryption index, with path (m/32'/coin_type'/encryption_index')
+    let channel_sk = ExtendedSpendingKey::master(channel_seed.expose_secret()).derive_child(ChildIndex::hardened(params.encryption_index));
+    //channel_master_sk.derive_child(ChildIndex::hardened(32));
+    //channel_master_sk.derive_child(ChildIndex::hardened(VERUS_COIN_TYPE));
+    //channel_master_sk.derive_child(ChildIndex::hardened(params.encryption_index));
     
-    // derive ExtendedFullViewingKey from the final spending key
-    let xfvk = final_sk.to_extended_full_viewing_key();
+
+    // (Biz) We do not need the below xfvk. dfvk is identical to this function call
+    // further, ZEC has deprecated this func in sapling-crypto crate
+    //let xfvk = final_sk.to_extended_full_viewing_key();
 
     // bech32 encode it
-    let fvk_bech = key_encoding::encode_xfvk(&xfvk)?;
+    //let fvk_bech = key_encoding::encode_xfvk(&xfvk)?;
     
-    // get the view-only key (dfvk) from the final spending key
-    let dfvk = final_sk.to_diversifiable_full_viewing_key();
+    // (Biz) dfvk includes all of the information we need, xfvk above was redundant
+    // We should also convert to SecretVec as soon as possible, always for secret info
+    let dfvk = channel_sk.to_diversifiable_full_viewing_key();
 
-    let network = Network::MainNetwork;
-    let (_diversifier, payment_address) = dfvk.default_address();
+    //let network = Network::MainNetwork;
+    let (_/*diversifier*/, payment_address) = dfvk.default_address();
     let addr = Address::from(payment_address);
 
     let ivk = dfvk.to_ivk(Scope::External);
     
-    let mut xfvk_bytes = Vec::with_capacity(169);
-    xfvk.write(&mut xfvk_bytes)?;
+    //let mut xfvk_bytes = Vec::with_capacity(169);
+    //xfvk.write(&mut xfvk_bytes)?;
 
     // prepare the final address and fvk in the channelkeys struct to be returned
     let channel_keys = ChannelKeys {
-        address: addr.encode(&network),
-        fvk: fvk_bech,
-        fvk_hex: hex::encode(xfvk_bytes),        
-        dfvk_hex: hex::encode(dfvk.to_bytes()),
-        spending_key: if params.return_secret {
-            Some(key_encoding::encode_sk(&final_sk)?) 
+        address: addr.encode(&Network::MainNetwork),
+        //fvk: fvk_bech,
+        //fvk_hex: hex::encode(xfvk_bytes),
+        dfvk_bytes: SecretVec::new(dfvk.to_bytes().into()),
+        spending_key_bytes: if params.return_secret {
+            Some(SecretVec::new(channel_sk.to_bytes().into())) 
         } else {
             None
         },
-        ivk: Some(hex::encode(ivk.0.to_bytes())),
+        ivk_bytes: Some(SecretVec::new(ivk.0.to_bytes().into())),
     };
 
     Ok(channel_keys)
