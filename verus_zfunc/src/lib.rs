@@ -227,15 +227,15 @@ pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
             return Err(anyhow!("Seed for encryption address must be 32 or 64 bytes (hex)"));
         }
         // derive base spending key fixed path m/32'/coin_type'/hd_index'
-        let master_sk = ExtendedSpendingKey::master(&seed_bytes.expose_secret());
-        let purpose_key = master_sk.derive_child(ChildIndex::hardened(32));
-        let coin_type_key = purpose_key.derive_child(ChildIndex::hardened(VERUS_COIN_TYPE));
+        let master_sk = ExtendedSpendingKey::master(&seed_bytes.expose_secret())
+            .derive_child(ChildIndex::hardened(32))
+            .derive_child(ChildIndex::hardened(VERUS_COIN_TYPE));
         if let Some(hd_index) = params.hd_index {
             // use hd_index, if provided
-            coin_type_key.derive_child(ChildIndex::hardened(hd_index))
+            master_sk.derive_child(ChildIndex::hardened(hd_index))
         } else {
             // use default 0 index if not provided
-            coin_type_key.derive_child(ChildIndex::hardened(0))
+            master_sk.derive_child(ChildIndex::hardened(0))
         }
     } else if let Some(sk_bytes) = params.spending_key {
         if params.hd_index.is_some() {
@@ -253,27 +253,6 @@ pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
     // serialize base_sk, prior to adding fromid & toid to same serialized value
     let mut encryption_seed_bytes = Vec::new();
     base_sk.write(&mut encryption_seed_bytes)?;     
-
-    //TODO: (Biz) I don't think we should handle these VerusID->uint160 conversions on this level
-    // we assume its a 20-byte hash as a result, and leave VerusID hashing responsibility to caller
-
-    // helper to parse id param into 20-byte hash160 (either accept 40-hex hex or compute RIPEMD160(SHA256(text)))
-    /*fn id_to_h160_bytes(id: &str) -> Result<[u8; 20]> {
-        // fast path: if caller provided 40 hex chars, treat as the h160 directly
-        if id.len() == 40 && id.chars().all(|c| c.is_ascii_hexdigit()) {
-            let b = hex::decode(id)?;
-            if b.len() != 20 {
-                return Err(anyhow!("id hex must be 20 bytes"));
-            }
-            let arr: [u8; 20] = b.try_into().unwrap();
-            return Ok(arr);
-        }
-        // otherwise compute hash160 = RIPEMD160(SHA256(id_bytes))
-        let sha = Sha256::digest(id.as_bytes());
-        let rip = Ripemd160::digest(&sha);
-        let arr: [u8; 20] = rip.into();
-        Ok(arr)
-    }*/
 
     if let Some(from_id_bytes) = params.from_id.as_ref() {
         if from_id_bytes.len() == 20 {
@@ -300,37 +279,20 @@ pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
     }
 
     // here is our unique, deterministic seed for the communication channel
-    let channel_seed: [u8; 32] = Sha256::digest(&encryption_seed_bytes).into();
+    let channel_seed = Secret::<[u8; 32]>::new(Sha256::digest(&encryption_seed_bytes).into());
 
 
-    //TODO: (Biz) we can almost certainly get rid of all these intermediate variables below,
-    // we are only using the last variable in this anyway, the rest are meaningless and incorrect
-
-    let channel_master_sk = ExtendedSpendingKey::master(&channel_seed);
-    let channel_purpose = channel_master_sk.derive_child(ChildIndex::hardened(32));
-    let channel_coin = channel_purpose.derive_child(ChildIndex::hardened(VERUS_COIN_TYPE)); // use same coin type as above
-    let final_sk = channel_coin.derive_child(ChildIndex::hardened(params.encryption_index));
-
-    // use the new channel seed to derive the final key for this channel
-    // use caller-provided encryption index, with path (m/32'/coin_type'/encryption_index')
-    //let channel_sk = ExtendedSpendingKey::master(channel_seed.expose_secret()).derive_child(ChildIndex::hardened(params.encryption_index));
-    //channel_master_sk.derive_child(ChildIndex::hardened(32));
-    //channel_master_sk.derive_child(ChildIndex::hardened(VERUS_COIN_TYPE));
-    //channel_master_sk.derive_child(ChildIndex::hardened(params.encryption_index));
-    
+    let channel_sk = ExtendedSpendingKey::master(channel_seed.expose_secret())
+        .derive_child(ChildIndex::hardened(32))
+        .derive_child(ChildIndex::hardened(VERUS_COIN_TYPE))
+        .derive_child(ChildIndex::hardened(params.encryption_index));
 
     // (Biz) Didn't think we needed this one below, but looks like we do. this is a extended diversifiable fvk
     // it includes *all* information present in a dfvk and and extfvk
-    let extended_dfvk = key_encoding::serialize_extended_dfvk(&final_sk.to_extended_full_viewing_key());
+    let extended_dfvk = key_encoding::serialize_extended_dfvk(&channel_sk.to_extended_full_viewing_key());
 
-    // bech32 encode it
-    //let fvk_bech = key_encoding::encode_xfvk(&xfvk)?;
-    
-    // (Biz) dfvk includes all of the information we need, xfvk above was redundant
-    // We should also convert to SecretVec as soon as possible, always for secret info
-    let dfvk = final_sk.to_diversifiable_full_viewing_key();
+    let dfvk = channel_sk.to_diversifiable_full_viewing_key();
 
-    //let network = Network::MainNetwork;
     let (_/*diversifier*/, payment_address) = dfvk.default_address();
     let addr = Address::from(payment_address);
 
@@ -345,7 +307,7 @@ pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
         fvk_bytes: extended_dfvk,
         dfvk_bytes: SecretVec::new(dfvk.to_bytes().into()),
         spending_key_bytes: if params.return_secret {
-            Some(SecretVec::new(final_sk.to_bytes().into())) 
+            Some(SecretVec::new(channel_sk.to_bytes().into())) 
         } else {
             None
         },
