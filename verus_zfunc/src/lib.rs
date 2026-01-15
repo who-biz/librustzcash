@@ -27,31 +27,35 @@ const VERUS_COIN_TYPE: u32 = 133;
 
 mod key_encoding {
         use super::*;
-        const FVK_PREFIX: &str = "zxviews";
-        const SK_PREFIX: &str = "secret-extended-key-main";
+        //const FVK_PREFIX: &str = "zxviews";
+        //const SK_PREFIX: &str = "secret-extended-key-main";
 
     // (Biz) Below was improperly named.  whenever we include a 'dk', it is a diversifiable fvk
-    // in this case, we also include extended information. This means that: anywhere this code also
-    // includes an 'xfvk', we're populating multiple struct members with totally redundant data
-    pub fn encode_extended_dfvk(xfvk: &ExtendedFullViewingKey) -> Result<String, anyhow::Error> {
-        let mut serialized = Vec::with_capacity(169);
+    // in this case, we also include extended information
+    pub fn serialize_extended_dfvk(ext_dfvk: &ExtendedFullViewingKey) -> SecretVec<u8> {
+        let mut serialized = Vec::<u8>::with_capacity(169);
 
         // This is the correct serialization order according to ZIP 32
-        serialized.push(xfvk.depth);
-        serialized.extend_from_slice(&xfvk.parent_fvk_tag.0);
-        serialized.extend_from_slice(&xfvk.child_index.index().to_le_bytes());
-        serialized.extend_from_slice(xfvk.chain_code.as_bytes());
-        serialized.extend_from_slice(&xfvk.fvk.to_bytes());
-        serialized.extend_from_slice(&xfvk.dk.0);
+        serialized.push(ext_dfvk.depth);
+        serialized.extend_from_slice(&ext_dfvk.parent_fvk_tag.0);
+        serialized.extend_from_slice(&ext_dfvk.child_index.index().to_le_bytes());
+        serialized.extend_from_slice(ext_dfvk.chain_code.as_bytes());
+        serialized.extend_from_slice(&ext_dfvk.fvk.to_bytes());
+        serialized.extend_from_slice(&ext_dfvk.dk.0);
 
-        bech32::encode(FVK_PREFIX, serialized.to_base32(), bech32::Variant::Bech32)
-            .map_err(|e| anyhow::anyhow!("Bech32 encoding failed: {}", e))
+        return SecretVec::new(serialized)
     }
 
-    pub fn encode_sk(sk: &ExtendedSpendingKey) -> Result<String, anyhow::Error> {
+    /*pub fn encode_extended_dfvk(ext_dfvk: &ExtendedFullViewingKey) -> Result<String, anyhow::Error> {
+        let serialized = serialize_extended_dfvk(ext_dfvk);
+        bech32::encode(FVK_PREFIX, serialized.expose_secret().to_base32(), bech32::Variant::Bech32)
+            .map_err(|e| anyhow::anyhow!("Bech32 encoding failed: {}", e))
+    }*/
+
+    /*pub fn encode_sk(sk: &ExtendedSpendingKey) -> Result<String, anyhow::Error> {
         let bytes = sk.to_bytes();
         Ok(bech32::encode(SK_PREFIX, bytes.to_base32(), Variant::Bech32)?)
-    }
+    }*/
 
 }
 
@@ -83,7 +87,7 @@ pub struct RpcParams {
 
 pub struct ChannelKeys {
     pub address: String,
-    //pub fvk: String, // redundant
+    pub fvk_bytes: SecretVec<u8>,
     //pub fvk_hex: String, // redundant
     pub dfvk_bytes: SecretVec<u8>,
     pub spending_key_bytes: Option<SecretVec<u8>>,
@@ -315,9 +319,9 @@ pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
     //channel_master_sk.derive_child(ChildIndex::hardened(params.encryption_index));
     
 
-    // (Biz) We do not need the below xfvk. dfvk is identical to this function call
-    // further, ZEC has deprecated this func in sapling-crypto crate
-    //let xfvk = final_sk.to_extended_full_viewing_key();
+    // (Biz) Didn't think we needed this one below, but looks like we do. this is a extended diversifiable fvk
+    // it includes *all* information present in a dfvk and and extfvk
+    let extended_dfvk = key_encoding::serialize_extended_dfvk(&channel_sk.to_extended_full_viewing_key());
 
     // bech32 encode it
     //let fvk_bech = key_encoding::encode_xfvk(&xfvk)?;
@@ -338,8 +342,7 @@ pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
     // prepare the final address and fvk in the channelkeys struct to be returned
     let channel_keys = ChannelKeys {
         address: addr.encode(&Network::MainNetwork),
-        //fvk: fvk_bech,
-        //fvk_hex: hex::encode(xfvk_bytes),
+        fvk_bytes: extended_dfvk,
         dfvk_bytes: SecretVec::new(dfvk.to_bytes().into()),
         spending_key_bytes: if params.return_secret {
             Some(SecretVec::new(channel_sk.to_bytes().into())) 
