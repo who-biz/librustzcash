@@ -91,8 +91,8 @@ pub struct ChannelKeys {
     //pub fvk_hex: String, // redundant
     pub dfvk_bytes: SecretVec<u8>,
     pub spending_key_bytes: Option<SecretVec<u8>>,
-    //TODO: (Biz) should this actually be optional?
-    pub ivk_bytes: Option<SecretVec<u8>>
+    pub ivk_bytes: SecretVec<u8>
+//    pub ivk_bytes: Option<SecretVec<u8>>
 }
 
 pub struct EncryptedPayload {
@@ -311,7 +311,7 @@ pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
         } else {
             None
         },
-        ivk_bytes: Some(SecretVec::new(ivk.0.to_bytes().into())),
+        ivk_bytes: SecretVec::new(ivk.0.to_bytes().into()),
     };
 
     Ok(channel_keys)
