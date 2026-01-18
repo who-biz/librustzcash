@@ -223,8 +223,15 @@ pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
         // if a seed is provided, derive the account key using the hd_index
 
         //TODO: see if we can avoid calling expose_secret() here, check this in a higher level
-        if seed_bytes.expose_secret().len() != 32 && seed_bytes.expose_secret().len() != 64 {
-            return Err(anyhow!("Seed for encryption address must be 32 or 64 bytes (hex)"));
+
+        match seed_bytes.expose_secret().len() {
+            32 | 64 => {} // valid values for seed length 32, or 64 bytes
+            0 => {
+                return Err(anyhow!("An empty string was passed as seed! If this was intentional, pass null argument instead on higher level"))
+            }
+            _ => {
+                return Err(anyhow!("If present, a seed for encryption address must be 32 or 64 bytes (hex)"));
+            }
         }
         // derive base spending key fixed path m/32'/coin_type'/hd_index'
         let master_sk = ExtendedSpendingKey::master(&seed_bytes.expose_secret())
