@@ -75,7 +75,10 @@ impl CryptoRng for DummyRng {}
 //TODO: check all of the below 'pub' members
 // anywhere we can prevent exposing this info, we should do so
 // we need to lock down RpcParams, ChannelKeys, Encrypted Payload, and DecryptParams as much as possible
-pub struct RpcParams {
+
+//TODO: eliminate RpcParams entirely.  upon further inspection this is very bad for security, because we do not
+// borrow, or keep anything private here except within SecretVecs, which still are a copy.
+/*pub struct RpcParams {
     pub seed: Option<SecretVec<u8>>,
     pub spending_key: Option<SecretVec<u8>>,
     pub hd_index: Option<u32>,
@@ -83,7 +86,7 @@ pub struct RpcParams {
     pub from_id: Option<Vec<u8>>,
     pub to_id: Option<Vec<u8>>,
     pub return_secret: bool,
-}
+}*/
 
 pub struct ChannelKeys {
     pub address: String,
@@ -217,14 +220,24 @@ pub fn generate_spending_key(seed_hex: String, hd_index: u32) -> Result<String> 
 
 // generates a unique, deterministic encryption address for a communication channel
 // between two parties, identified by from_id` and `to_id
-pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
+pub fn z_getencryptionaddress(
+    seed: Option<&SecretVec<u8>>,  //TODO: create enum that combines seed & spending key in this layer into SeedMaterial variants
+    spending_key: Option<&Secret<[u8; 169]>>,
+    hd_index: Option<u32>,  //TODO: then combine hd_index with seed, to eliminate hd_index logic when extsk present
+    encryption_index: u32,
+    from_id: Option<&[u8; 20]>,
+    to_id: Option<&[u8; 20]>,
+    return_secret: bool,
+) -> Result<ChannelKeys> {
     // determine the base spending key from either a seed or a provided key
-    let base_sk = if let Some(seed_bytes) = params.seed {
+    let base_sk = if let Some(seed_bytes) = seed.as_ref() {
         // if a seed is provided, derive the account key using the hd_index
-
-        //TODO: see if we can avoid calling expose_secret() here, check this in a higher level
-
         match seed_bytes.expose_secret().len() {
+
+            //TODO: we can avoid the expose_secret() call above by using the 'SeedMaterial' variant approach above
+            // OR we can simply populate an intermediate borrow, and move master_sk logic into the brackets below
+            // for valid length
+
             32 | 64 => {} // valid values for seed length 32, or 64 bytes
             0 => {
                 return Err(anyhow!("An empty string was passed as seed! If this was intentional, pass null argument instead on higher level"))
@@ -234,24 +247,24 @@ pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
             }
         }
         // derive base spending key fixed path m/32'/coin_type'/hd_index'
-        let master_sk = ExtendedSpendingKey::master(&seed_bytes.expose_secret())
+        let master_sk = ExtendedSpendingKey::master(seed_bytes.expose_secret())
             .derive_child(ChildIndex::hardened(32))
             .derive_child(ChildIndex::hardened(VERUS_COIN_TYPE));
-        if let Some(hd_index) = params.hd_index {
+        if let Some(hd_index) = hd_index {
             // use hd_index, if provided
             master_sk.derive_child(ChildIndex::hardened(hd_index))
         } else {
             // use default 0 index if not provided
             master_sk.derive_child(ChildIndex::hardened(0))
         }
-    } else if let Some(sk_bytes) = params.spending_key {
-        if params.hd_index.is_some() {
+    } else if let Some(extsk_bytes) = spending_key.as_ref() {
+        if hd_index.is_some() {
             return Err(anyhow!("Spending key, and hdindex provided! If an hdindex is provided, seed must be an HD wallet seed for which (hdindex) represents a valid address index!"));
         }
         // if a spending key is provided, use it directly
 
         // (Biz) ExtendedSpendingKey::from_bytes() checks length internally, throws error if not 169 bytes
-        ExtendedSpendingKey::from_bytes(&sk_bytes.expose_secret())
+        ExtendedSpendingKey::from_bytes(extsk_bytes.expose_secret())
             .map_err(|_| anyhow!("Failed to parse spending key"))?
     } else {
         return Err(anyhow!("Must provide 'seed' or 'spendingKey'"));
@@ -260,26 +273,28 @@ pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
     // serialize base_sk, prior to adding fromid & toid to same serialized value
     let mut encryption_seed_bytes = Vec::new();
     base_sk.write(&mut encryption_seed_bytes)?;     
+    //TODO: eliminate plaintext handling above, incrementally update Sha256 hash using `to_bytes()` accessor, borrow non-mutable bytes
 
-    if let Some(from_id_bytes) = params.from_id.as_ref() {
-        if from_id_bytes.len() == 20 {
+
+    if let Some(from_id_bytes) = from_id.as_ref() {
+        //if from_id_bytes.len() == 20 {
             // serialize together with base_sk, byte-flipping for little-endian while doing so
-            encryption_seed_bytes.extend(from_id_bytes.iter().rev().copied());
-        } else {
-            return Err(anyhow!("from_id parameter provided, but byte length is incorrect! Actual: {:?}, Expected 20", from_id_bytes.len()));
-        }
+            encryption_seed_bytes.extend(from_id_bytes.iter().rev());
+        //} else {
+        //    return Err(anyhow!("from_id parameter provided, but byte length is incorrect! Actual: {:?}, Expected 20", from_id_bytes.len()));
+       // }
     } else {
         // 0 serialized in place if not 20-byte hash not present
         encryption_seed_bytes.push(0u8);
     }
 
-    if let Some(to_id_bytes) = params.to_id.as_ref() {
-        if to_id_bytes.len() == 20 {
+    if let Some(to_id_bytes) = to_id.as_ref() {
+        //if to_id_bytes.len() == 20 {
             // serialize together with (base_sk << from_id), byte-flipping for little-endian while doing so
-            encryption_seed_bytes.extend(to_id_bytes.iter().rev().copied());  
-        } else {
-            return Err(anyhow!("to_id parameter provided, but byte length is incorrect! Actual: {:?}, Expected 20", to_id_bytes.len()));
-        }
+            encryption_seed_bytes.extend(to_id_bytes.iter().rev());  
+        //} else {
+        //    return Err(anyhow!("to_id parameter provided, but byte length is incorrect! Actual: {:?}, Expected 20", to_id_bytes.len()));
+        //}
     } else {
         // 0 serialized in place if not 20-byte hash not present
         encryption_seed_bytes.push(0u8);
@@ -292,7 +307,7 @@ pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
     let channel_sk = ExtendedSpendingKey::master(channel_seed.expose_secret())
         .derive_child(ChildIndex::hardened(32))
         .derive_child(ChildIndex::hardened(VERUS_COIN_TYPE))
-        .derive_child(ChildIndex::hardened(params.encryption_index));
+        .derive_child(ChildIndex::hardened(encryption_index));
 
     // (Biz) Didn't think we needed this one below, but looks like we do. this is a extended diversifiable fvk
     // it includes *all* information present in a dfvk and and extfvk
@@ -313,7 +328,7 @@ pub fn z_getencryptionaddress(params: RpcParams) -> Result<ChannelKeys> {
         address: addr.encode(&Network::MainNetwork),
         fvk_bytes: extended_dfvk,
         dfvk_bytes: SecretVec::new(dfvk.to_bytes().into()),
-        spending_key_bytes: if params.return_secret {
+        spending_key_bytes: if return_secret {
             Some(SecretVec::new(channel_sk.to_bytes().into())) 
         } else {
             None
