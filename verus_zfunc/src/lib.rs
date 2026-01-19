@@ -5,6 +5,8 @@ use rand_core::{CryptoRng, RngCore};
 use sha2::{Digest, Sha256};
 use ripemd::Ripemd160;
 
+use std::io::{self, Cursor};
+
 use sapling::{
     keys::SaplingIvk,
     note_encryption::{PreparedIncomingViewingKey, SaplingDomain},
@@ -25,40 +27,6 @@ use secrecy::{ExposeSecret, SecretVec, Secret};
 
 const VERUS_COIN_TYPE: u32 = 133;
 
-mod key_encoding {
-        use super::*;
-        //const FVK_PREFIX: &str = "zxviews";
-        //const SK_PREFIX: &str = "secret-extended-key-main";
-
-    // (Biz) Below was improperly named.  whenever we include a 'dk', it is a diversifiable fvk
-    // in this case, we also include extended information
-    pub fn serialize_extended_dfvk(ext_dfvk: &ExtendedFullViewingKey) -> SecretVec<u8> {
-        let mut serialized = Vec::<u8>::with_capacity(169);
-
-        // This is the correct serialization order according to ZIP 32
-        serialized.push(ext_dfvk.depth);
-        serialized.extend_from_slice(&ext_dfvk.parent_fvk_tag.0);
-        serialized.extend_from_slice(&ext_dfvk.child_index.index().to_le_bytes());
-        serialized.extend_from_slice(ext_dfvk.chain_code.as_bytes());
-        serialized.extend_from_slice(&ext_dfvk.fvk.to_bytes());
-        serialized.extend_from_slice(&ext_dfvk.dk.0);
-
-        return SecretVec::new(serialized)
-    }
-
-    /*pub fn encode_extended_dfvk(ext_dfvk: &ExtendedFullViewingKey) -> Result<String, anyhow::Error> {
-        let serialized = serialize_extended_dfvk(ext_dfvk);
-        bech32::encode(FVK_PREFIX, serialized.expose_secret().to_base32(), bech32::Variant::Bech32)
-            .map_err(|e| anyhow::anyhow!("Bech32 encoding failed: {}", e))
-    }*/
-
-    /*pub fn encode_sk(sk: &ExtendedSpendingKey) -> Result<String, anyhow::Error> {
-        let bytes = sk.to_bytes();
-        Ok(bech32::encode(SK_PREFIX, bytes.to_base32(), Variant::Bech32)?)
-    }*/
-
-}
-
 struct DummyRng;
 impl RngCore for DummyRng {
     fn next_u32(&mut self) -> u32 { 0 }
@@ -76,26 +44,13 @@ impl CryptoRng for DummyRng {}
 // anywhere we can prevent exposing this info, we should do so
 // we need to lock down RpcParams, ChannelKeys, Encrypted Payload, and DecryptParams as much as possible
 
-//TODO: eliminate RpcParams entirely.  upon further inspection this is very bad for security, because we do not
-// borrow, or keep anything private here except within SecretVecs, which still are a copy.
-/*pub struct RpcParams {
-    pub seed: Option<SecretVec<u8>>,
-    pub spending_key: Option<SecretVec<u8>>,
-    pub hd_index: Option<u32>,
-    pub encryption_index: u32,
-    pub from_id: Option<Vec<u8>>,
-    pub to_id: Option<Vec<u8>>,
-    pub return_secret: bool,
-}*/
-
+//TODO: adding variables to this struct creates copies, when we don't want to do that with Secrets
+// We should probably pass this directly back to JNI/Swift/WASM, unsure if possible to do with borrows presently
 pub struct ChannelKeys {
     pub address: String,
-    pub fvk_bytes: SecretVec<u8>,
-    //pub fvk_hex: String, // redundant
-    pub dfvk_bytes: SecretVec<u8>,
-    pub spending_key_bytes: Option<SecretVec<u8>>,
-    pub ivk_bytes: SecretVec<u8>
-//    pub ivk_bytes: Option<SecretVec<u8>>
+    pub extfvk_bytes: Secret<[u8; 169]>,
+    pub spending_key_bytes: Option<Secret<[u8; 169]>>,
+    pub ivk_bytes: Secret<[u8; 32]>,
 }
 
 pub struct EncryptedPayload {
@@ -110,6 +65,7 @@ pub struct DecryptParams {
     pub ciphertext_hex: String,
     pub symmetric_key_hex: Option<String>,
 }
+
 
 // derives a shared symmetric key using the receiver's private viewing key
 // and the sender's public key
@@ -218,6 +174,21 @@ pub fn generate_spending_key(seed_hex: String, hd_index: u32) -> Result<String> 
     Ok(hex::encode(sk_bytes))
 }
 
+// we don't need a specific module here, just don't make the function public
+fn internal_serialize_extended_fvk(extfvk: &ExtendedFullViewingKey) -> Result<Secret<[u8; 169]>> {
+    let mut out = [0u8; 169];
+    {
+        let mut w = Cursor::new(out.as_mut_slice());
+        extfvk.write(&mut w)?;
+        if w.position() != 169 {
+            return Err(anyhow!("Serializing extfvk produced incorrect length not equal to 169 bytes!"));
+        }
+        let serialized = Secret::<[u8; 169]>::new(out);
+        Ok(serialized)
+
+    }
+}
+
 // generates a unique, deterministic encryption address for a communication channel
 // between two parties, identified by from_id` and `to_id
 pub fn z_getencryptionaddress(
@@ -229,7 +200,7 @@ pub fn z_getencryptionaddress(
     to_id: Option<&[u8; 20]>,
     return_secret: bool,
 ) -> Result<ChannelKeys> {
-    // determine the base spending key from either a seed or a provided key
+    // immediately pack the computed spending key (derived from seed OR directly extsk) into a secret array
     let base_sk = Secret::<[u8; 169]>::new(
         if let Some(seed_bytes) = seed.as_ref() {
             // if a seed is provided, derive the account key using the hd_index
@@ -267,20 +238,18 @@ pub fn z_getencryptionaddress(
         }
     );
 
-    let serialized_ids = Vec::<u8>::new();
-
+    // we compute a sha256 hash, and immediately pack this variable into a new secret array
     let encryption_channel_seed: Secret::<[u8; 32]> = Secret::new({
         let mut seed_hash = Sha256::new();
         //only expose base_sk Secret inside this scope
         seed_hash.update(base_sk.expose_secret());
 
-        // handle id bytes portion of seed
+        // serialize id bytes portion of seed, 0 is used in place if absent
         if let Some(from_id_bytes) = from_id {
             let mut tmp  = *from_id_bytes;
             tmp.reverse();
             seed_hash.update(tmp);
         } else {
-            // 0 serialized in place if 20-byte hash not present
             seed_hash.update(&[0u8]);
         }
         if let Some(to_id_bytes) = to_id {
@@ -288,7 +257,6 @@ pub fn z_getencryptionaddress(
             tmp.reverse();
             seed_hash.update(tmp);
         } else {
-            // 0 serialized in place if 20-byte hash not present
             seed_hash.update(&[0u8]);
         };
 
@@ -300,16 +268,14 @@ pub fn z_getencryptionaddress(
         .derive_child(ChildIndex::hardened(VERUS_COIN_TYPE))
         .derive_child(ChildIndex::hardened(encryption_index));
 
-    // (Biz) Didn't think we needed this one below, but looks like we do. this is a extended diversifiable fvk
-    // it includes *all* information present in a dfvk and and extfvk
-    let extended_dfvk = key_encoding::serialize_extended_dfvk(&channel_sk.to_extended_full_viewing_key());
+    let extfvk_bytes = internal_serialize_extended_fvk(&channel_sk.to_extended_full_viewing_key())?;
 
     let dfvk = channel_sk.to_diversifiable_full_viewing_key();
 
     let (_/*diversifier*/, payment_address) = dfvk.default_address();
     let addr = Address::from(payment_address);
 
-    let ivk = dfvk.to_ivk(Scope::External);
+    let ivk_bytes = Secret::<[u8; 32]>::new(dfvk.to_ivk(Scope::External).0.to_bytes());
     
     //let mut xfvk_bytes = Vec::with_capacity(169);
     //xfvk.write(&mut xfvk_bytes)?;
@@ -317,14 +283,13 @@ pub fn z_getencryptionaddress(
     // prepare the final address and fvk in the channelkeys struct to be returned
     let channel_keys = ChannelKeys {
         address: addr.encode(&Network::MainNetwork),
-        fvk_bytes: extended_dfvk,
-        dfvk_bytes: SecretVec::new(dfvk.to_bytes().into()),
+        extfvk_bytes,
         spending_key_bytes: if return_secret {
-            Some(SecretVec::new(channel_sk.to_bytes().into())) 
+            Some(Secret::<[u8; 169]>::new(channel_sk.to_bytes())) 
         } else {
             None
         },
-        ivk_bytes: SecretVec::new(ivk.0.to_bytes().into()),
+        ivk_bytes
     };
 
     Ok(channel_keys)
