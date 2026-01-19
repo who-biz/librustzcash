@@ -230,81 +230,72 @@ pub fn z_getencryptionaddress(
     return_secret: bool,
 ) -> Result<ChannelKeys> {
     // determine the base spending key from either a seed or a provided key
-    let base_sk = if let Some(seed_bytes) = seed.as_ref() {
-        // if a seed is provided, derive the account key using the hd_index
-        match seed_bytes.expose_secret().len() {
-
-            //TODO: we can avoid the expose_secret() call above by using the 'SeedMaterial' variant approach above
-            // OR we can simply populate an intermediate borrow, and move master_sk logic into the brackets below
-            // for valid length
-
-            32 | 64 => {} // valid values for seed length 32, or 64 bytes
-            0 => {
-                return Err(anyhow!("An empty string was passed as seed! If this was intentional, pass null argument instead on higher level"))
+    let base_sk = Secret::<[u8; 169]>::new(
+        if let Some(seed_bytes) = seed.as_ref() {
+            // if a seed is provided, derive the account key using the hd_index
+            match seed_bytes.expose_secret().len() {
+                32 | 64 => {  // valid values for seed length 32, or 64 bytes
+                    // derive base spending key fixed path m/32'/coin_type'/hd_index'
+                    let master_sk = ExtendedSpendingKey::master(seed_bytes.expose_secret().as_slice())
+                        .derive_child(ChildIndex::hardened(32))
+                        .derive_child(ChildIndex::hardened(VERUS_COIN_TYPE));
+                    if let Some(hd_index) = hd_index {
+                        master_sk.derive_child(ChildIndex::hardened(hd_index)).to_bytes()
+                    } else {
+                        // 0 used as default index when not provided
+                        master_sk.derive_child(ChildIndex::hardened(0)).to_bytes()
+                    }
+                },
+                0 => {
+                    return Err(anyhow!("An empty string was passed as seed! If this was intentional, pass null argument instead on higher level"))
+                }
+                _ => {
+                    // all other lengths throw erorr
+                    return Err(anyhow!("If present, a seed for encryption address must be 32 or 64 bytes (hex)"));
+                }
             }
-            _ => {
-                return Err(anyhow!("If present, a seed for encryption address must be 32 or 64 bytes (hex)"));
+        } else if let Some(extsk_bytes) = spending_key.as_ref() {
+            // if a spending key is provided, use it directly
+            if hd_index.is_some() {
+                return Err(anyhow!("Spending key, and hdindex provided! If an hdindex is provided, seed must be an HD wallet seed for which (hdindex) represents a valid address index!"));
             }
-        }
-        // derive base spending key fixed path m/32'/coin_type'/hd_index'
-        let master_sk = ExtendedSpendingKey::master(seed_bytes.expose_secret())
-            .derive_child(ChildIndex::hardened(32))
-            .derive_child(ChildIndex::hardened(VERUS_COIN_TYPE));
-        if let Some(hd_index) = hd_index {
-            // use hd_index, if provided
-            master_sk.derive_child(ChildIndex::hardened(hd_index))
+            // length check for 169 happens inside from_bytes()
+            ExtendedSpendingKey::from_bytes(extsk_bytes.expose_secret())
+                .map_err(|_| anyhow!("Failed to parse spending key"))?.to_bytes()
         } else {
-            // use default 0 index if not provided
-            master_sk.derive_child(ChildIndex::hardened(0))
+            return Err(anyhow!("Must provide 'seed' or 'spendingKey'"));
         }
-    } else if let Some(extsk_bytes) = spending_key.as_ref() {
-        if hd_index.is_some() {
-            return Err(anyhow!("Spending key, and hdindex provided! If an hdindex is provided, seed must be an HD wallet seed for which (hdindex) represents a valid address index!"));
+    );
+
+    let serialized_ids = Vec::<u8>::new();
+
+    let encryption_channel_seed: Secret::<[u8; 32]> = Secret::new({
+        let mut seed_hash = Sha256::new();
+        //only expose base_sk Secret inside this scope
+        seed_hash.update(base_sk.expose_secret());
+
+        // handle id bytes portion of seed
+        if let Some(from_id_bytes) = from_id {
+            let mut tmp  = *from_id_bytes;
+            tmp.reverse();
+            seed_hash.update(tmp);
+        } else {
+            // 0 serialized in place if 20-byte hash not present
+            seed_hash.update(&[0u8]);
         }
-        // if a spending key is provided, use it directly
+        if let Some(to_id_bytes) = to_id {
+            let mut tmp = *to_id_bytes;
+            tmp.reverse();
+            seed_hash.update(tmp);
+        } else {
+            // 0 serialized in place if 20-byte hash not present
+            seed_hash.update(&[0u8]);
+        };
 
-        // (Biz) ExtendedSpendingKey::from_bytes() checks length internally, throws error if not 169 bytes
-        ExtendedSpendingKey::from_bytes(extsk_bytes.expose_secret())
-            .map_err(|_| anyhow!("Failed to parse spending key"))?
-    } else {
-        return Err(anyhow!("Must provide 'seed' or 'spendingKey'"));
-    };
+        seed_hash.finalize().into()
+    });
 
-    // serialize base_sk, prior to adding fromid & toid to same serialized value
-    let mut encryption_seed_bytes = Vec::new();
-    base_sk.write(&mut encryption_seed_bytes)?;     
-    //TODO: eliminate plaintext handling above, incrementally update Sha256 hash using `to_bytes()` accessor, borrow non-mutable bytes
-
-
-    if let Some(from_id_bytes) = from_id.as_ref() {
-        //if from_id_bytes.len() == 20 {
-            // serialize together with base_sk, byte-flipping for little-endian while doing so
-            encryption_seed_bytes.extend(from_id_bytes.iter().rev());
-        //} else {
-        //    return Err(anyhow!("from_id parameter provided, but byte length is incorrect! Actual: {:?}, Expected 20", from_id_bytes.len()));
-       // }
-    } else {
-        // 0 serialized in place if not 20-byte hash not present
-        encryption_seed_bytes.push(0u8);
-    }
-
-    if let Some(to_id_bytes) = to_id.as_ref() {
-        //if to_id_bytes.len() == 20 {
-            // serialize together with (base_sk << from_id), byte-flipping for little-endian while doing so
-            encryption_seed_bytes.extend(to_id_bytes.iter().rev());  
-        //} else {
-        //    return Err(anyhow!("to_id parameter provided, but byte length is incorrect! Actual: {:?}, Expected 20", to_id_bytes.len()));
-        //}
-    } else {
-        // 0 serialized in place if not 20-byte hash not present
-        encryption_seed_bytes.push(0u8);
-    }
-
-    // here is our unique, deterministic seed for the communication channel
-    let channel_seed = Secret::<[u8; 32]>::new(Sha256::digest(&encryption_seed_bytes).into());
-
-
-    let channel_sk = ExtendedSpendingKey::master(channel_seed.expose_secret())
+    let channel_sk = ExtendedSpendingKey::master(encryption_channel_seed.expose_secret())
         .derive_child(ChildIndex::hardened(32))
         .derive_child(ChildIndex::hardened(VERUS_COIN_TYPE))
         .derive_child(ChildIndex::hardened(encryption_index));
