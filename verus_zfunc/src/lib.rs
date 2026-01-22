@@ -3,9 +3,7 @@ use chacha20poly1305::{AeadInPlace, ChaCha20Poly1305, KeyInit};
 use hex;
 use rand_core::{CryptoRng, RngCore};
 use sha2::{Digest, Sha256};
-use ripemd::Ripemd160;
-
-use std::io::{self, Cursor};
+use std::io::{Cursor};
 
 use sapling::{
     keys::SaplingIvk,
@@ -21,7 +19,6 @@ use zcash_primitives::{
     zip32::{ChildIndex, Scope},
 };
 use blake2b_simd::{Hash as Blake2bHash};
-use bech32::{self, ToBase32, Variant};
 
 use secrecy::{ExposeSecret, SecretVec, Secret};
 
