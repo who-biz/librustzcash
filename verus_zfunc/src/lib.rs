@@ -25,6 +25,21 @@ use bech32::{self, ToBase32, Variant};
 
 use secrecy::{ExposeSecret, SecretVec, Secret};
 
+// we don't need a specific module here, just don't make the function public
+fn internal_serialize_extended_fvk(extfvk: &ExtendedFullViewingKey) -> Result<Secret<[u8; 169]>> {
+    let mut out = [0u8; 169];
+    {
+        let mut w = Cursor::new(out.as_mut_slice());
+        extfvk.write(&mut w)?;
+        if w.position() != 169 {
+            return Err(anyhow!("Serializing extfvk produced incorrect length not equal to 169 bytes!"));
+        }
+        let serialized = Secret::<[u8; 169]>::new(out);
+        Ok(serialized)
+
+    }
+}
+
 const VERUS_COIN_TYPE: u32 = 133;
 
 struct DummyRng;
@@ -44,8 +59,7 @@ impl CryptoRng for DummyRng {}
 // anywhere we can prevent exposing this info, we should do so
 // we need to lock down RpcParams, ChannelKeys, Encrypted Payload, and DecryptParams as much as possible
 
-//TODO: adding variables to this struct creates copies, when we don't want to do that with Secrets
-// We should probably pass this directly back to JNI/Swift/WASM, unsure if possible to do with borrows presently
+// (Biz) seems this one is indeed the right way to go. we need to own the data to pass back up
 pub struct ChannelKeys {
     pub address: String,
     pub extfvk_bytes: Secret<[u8; 169]>,
@@ -111,7 +125,7 @@ fn internal_get_symmetric_key_receiver(
 
 fn internal_generate_symmetric_key_sender(
     address: &Address,
-    rseed_bytes: &[u8],
+    rseed_bytes: &Secret<[u8; 32]>,
 ) -> Result<(Blake2bHash, EphemeralKeyBytes)> {
 
     //ensures the provided address is a sapling address
@@ -124,7 +138,7 @@ fn internal_generate_symmetric_key_sender(
     // temporary encryption keys are derived
 
     let rseed_array: [u8; 32] = rseed_bytes.try_into()?;
-    let rseed = Rseed::AfterZip212(rseed_array);
+    let rseed = Rseed::AfterZip212(&rseed_array.expose_secret());
 
         // create a dummy note, which is a necessary component for deriving the keys
     let note = Note::from_parts(recipient.clone(), NoteValue::from_raw(0), rseed);
@@ -172,21 +186,6 @@ pub fn generate_spending_key(seed_hex: String, hd_index: u32) -> Result<String> 
 
     // return the hex-encoded spending key
     Ok(hex::encode(sk_bytes))
-}
-
-// we don't need a specific module here, just don't make the function public
-fn internal_serialize_extended_fvk(extfvk: &ExtendedFullViewingKey) -> Result<Secret<[u8; 169]>> {
-    let mut out = [0u8; 169];
-    {
-        let mut w = Cursor::new(out.as_mut_slice());
-        extfvk.write(&mut w)?;
-        if w.position() != 169 {
-            return Err(anyhow!("Serializing extfvk produced incorrect length not equal to 169 bytes!"));
-        }
-        let serialized = Secret::<[u8; 169]>::new(out);
-        Ok(serialized)
-
-    }
 }
 
 // generates a unique, deterministic encryption address for a communication channel
@@ -277,9 +276,6 @@ pub fn z_getencryptionaddress(
 
     let ivk_bytes = Secret::<[u8; 32]>::new(dfvk.to_ivk(Scope::External).0.to_bytes());
     
-    //let mut xfvk_bytes = Vec::with_capacity(169);
-    //xfvk.write(&mut xfvk_bytes)?;
-
     // prepare the final address and fvk in the channelkeys struct to be returned
     let channel_keys = ChannelKeys {
         address: addr.encode(&Network::MainNetwork),
