@@ -128,22 +128,20 @@ fn internal_generate_symmetric_key_sender(
     rseed_bytes: &Secret<[u8; 32]>,
 ) -> Result<(Blake2bHash, EphemeralKeyBytes)> {
 
-    //ensures the provided address is a sapling address
     let recipient = match address {
         Address::Sapling(addr) => addr,
         _ => return Err(anyhow!("Incompatible Address used")),
     };
 
-     // seed is a required component for creating a note, from which the
-    // temporary encryption keys are derived
+    //TODO: copy, not zeroized without modifications - do we want to do this?
+    let rseed = Rseed::AfterZip212(*rseed_bytes.expose_secret());
 
-    let rseed_array: [u8; 32] = rseed_bytes.try_into()?;
-    let rseed = Rseed::AfterZip212(&rseed_array.expose_secret());
-
-        // create a dummy note, which is a necessary component for deriving the keys
+    // necessary functions only available through Note struct
     let note = Note::from_parts(recipient.clone(), NoteValue::from_raw(0), rseed);
 
     // create a dummy rng to satisfy the function signature. this is not used for randomness.
+
+    //TODO: (Biz) re: above comment... seems like it is? see generate_or_derive_esk()
     let mut dummy_rng = DummyRng;
 
     // generates a new, single-use ephemeral secret key (esk) deterministically from the rseed.
@@ -151,13 +149,12 @@ fn internal_generate_symmetric_key_sender(
     let esk = note.generate_or_derive_esk(&mut dummy_rng);
 
     // derives the corresponding ephemeral public key (epk)
-    let epk = <SaplingDomain as Domain>::ka_derive_public(&note, &esk);
-    let epk_bytes = <SaplingDomain as Domain>::epk_bytes(&epk);
+    let epk_bytes = <SaplingDomain as Domain>::epk_bytes(&<SaplingDomain as Domain>::ka_derive_public(&note, &esk));
+//    let epk_bytes = <SaplingDomain as Domain>::epk_bytes(&epk);
 
     //it combines the sender's esk with the
     //recipient's pk_d to compute a secret value
-    let pk_d = recipient.pk_d();
-    let shared_secret = <SaplingDomain as Domain>::ka_agree_enc(&esk, pk_d);
+    let shared_secret = <SaplingDomain as Domain>::ka_agree_enc(&esk, &recipient.pk_d());
 
     // derives the symmetric key using the shared secret and the ephemeral public key bytes
     let symmetric_key: Blake2bHash = <SaplingDomain as Domain>::kdf(shared_secret, &epk_bytes);
@@ -305,8 +302,11 @@ pub fn encrypt_message(
      .ok_or_else(|| anyhow!("Address is for the wrong network or invalid"))?;
 
     // generate fresh random bytes for the note's rseed
-    let mut rseed_bytes = [0u8; 32];
-    getrandom::getrandom(&mut rseed_bytes)?;
+    let rseed_bytes = Secret::<[u8; 32]>::new({
+        let mut tmp = [0u8; 32];
+        getrandom::getrandom(&mut tmp)?;
+        tmp
+    });
 
     // call the internal helper to perform the key exchange
     // this returns the shared symmetric key and the public ephemeral key
