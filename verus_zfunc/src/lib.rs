@@ -3,7 +3,7 @@ use chacha20poly1305::{AeadInPlace, ChaCha20Poly1305, KeyInit};
 use hex;
 use rand_core::{CryptoRng, RngCore};
 use sha2::{Digest, Sha256};
-use std::io::{Cursor};
+use std::io::{Cursor, Read};
 
 use sapling::{
     keys::SaplingIvk,
@@ -39,6 +39,7 @@ fn internal_serialize_extended_fvk(extfvk: &ExtendedFullViewingKey) -> Result<Se
 
 const VERUS_COIN_TYPE: u32 = 133;
 
+// TODO: (Biz) definitely looks like we need to fix this...
 struct DummyRng;
 impl RngCore for DummyRng {
     fn next_u32(&mut self) -> u32 { 0 }
@@ -71,10 +72,10 @@ pub struct EncryptedPayload {
 }
 
 pub struct DecryptParams {
-    pub fvk_hex: Option<String>,
-    pub ephemeral_public_key_hex: Option<String>,
+    pub extfvk_bytes: Option<Secret<[u8; 128]>>,
+    pub epk_bytes: Option<Secret<[u8; 32]>>,
     pub ciphertext_hex: String,
-    pub symmetric_key_hex: Option<String>,
+    pub symmetric_key_bytes: Option<Secret<[u8; 32]>>,
 }
 
 
@@ -82,26 +83,20 @@ pub struct DecryptParams {
 // and the sender's public key
 
 fn internal_get_symmetric_key_receiver(
-    dfvk_bytes: &[u8],
-    ephemeral_pk_bytes: &[u8],
+    dfvk_bytes: &Secret<[u8; 128]>,
+    ephemeral_pk_bytes: &Secret<[u8; 32]>,
 ) -> Result<Blake2bHash> {
 
     // parse the viewing key bytes into a key object
-    let dfvk_bytes_array: [u8; 128] = dfvk_bytes
-      .try_into()
-      .map_err(|_| anyhow!("DFVK data must be 128 bytes long."))?;
-    let dfvk = DiversifiableFullViewingKey::from_bytes(&dfvk_bytes_array)
+    let dfvk = DiversifiableFullViewingKey::from_bytes(&dfvk_bytes.expose_secret())
       .ok_or_else(|| anyhow!("Failed to parse DFVK from bytes"))?;
 
    // extract the incoming viewing key (ivk), the private part needed for decryption
-    let ivk: SaplingIvk = dfvk.to_ivk(Scope::External);
-    let sapling_ivk = PreparedIncomingViewingKey::new(&ivk);
+    let sapling_ivk = PreparedIncomingViewingKey::new(&dfvk.to_ivk(Scope::External));
 
     // parse the sender's public key bytes into a key object
-    let epk_array: [u8; 32] = ephemeral_pk_bytes
-      .try_into()
-      .map_err(|_| anyhow!("EPK must be 32 bytes"))?;
-    let epk_bytes = EphemeralKeyBytes(epk_array);
+    let epk_bytes = EphemeralKeyBytes(*ephemeral_pk_bytes.expose_secret());
+
     let epk = <SaplingDomain as Domain>::epk(&epk_bytes)
       .ok_or_else(|| anyhow!("Failed to create EphemeralPublicKey"))?;
 
@@ -137,7 +132,6 @@ fn internal_generate_symmetric_key_sender(
     let note = Note::from_parts(recipient.clone(), NoteValue::from_raw(0), rseed);
 
     // create a dummy rng to satisfy the function signature. this is not used for randomness.
-
     //TODO: (Biz) re: above comment... seems like it is? see generate_or_derive_esk()
     let mut dummy_rng = DummyRng;
 
@@ -145,12 +139,8 @@ fn internal_generate_symmetric_key_sender(
     // this is the sender's temporary private key for this one-time encryption.
     let esk = note.generate_or_derive_esk(&mut dummy_rng);
 
-    // derives the corresponding ephemeral public key (epk)
     let epk_bytes = <SaplingDomain as Domain>::epk_bytes(&<SaplingDomain as Domain>::ka_derive_public(&note, &esk));
-//    let epk_bytes = <SaplingDomain as Domain>::epk_bytes(&epk);
 
-    //it combines the sender's esk with the
-    //recipient's pk_d to compute a secret value
     let shared_secret = <SaplingDomain as Domain>::ka_agree_enc(&esk, &recipient.pk_d());
 
     // derives the symmetric key using the shared secret and the ephemeral public key bytes
@@ -342,36 +332,26 @@ pub fn encrypt_message(
 // decrypts a message using either a direct symmetric key, or by deriving
 // the key from a full viewing key and the senders ephemeral public key
 pub fn decrypt_message(params: DecryptParams) -> Result<String> {
-    // This buffer will hold the final 32-byte key for the cipher
-    let mut key_bytes = [0u8; 32];
-
-    if let Some(ssk_hex) = params.symmetric_key_hex {
-        // if a symmetric key is provided, decode it directly
-        let ssk_bytes_vec = hex::decode(ssk_hex)?;
-        // IMPORTANT: We now expect the 32-byte key
-        let ssk_bytes: [u8; 32] = ssk_bytes_vec
-            .try_into()
-            .map_err(|_| anyhow!("Provided symmetric key must be 32 bytes"))?;
-        key_bytes.copy_from_slice(&ssk_bytes);
-
-    } else if let (Some(fvk_hex), Some(epk_hex)) = (params.fvk_hex, params.ephemeral_public_key_hex) {
-        // derive the key using the FVK and sender's public key
-        let fvk_bytes = hex::decode(fvk_hex)?;
-        let epk_bytes = hex::decode(epk_hex)?;
-        let symmetric_key_hash = internal_get_symmetric_key_receiver(&fvk_bytes, &epk_bytes)?;
-        // Copy the first 32 bytes from the derived hash into our key buffer
-        key_bytes.copy_from_slice(&symmetric_key_hash.as_bytes()[..32]);
-    } else {
-        return Err(anyhow!(
-            "Must provide either a symmetricKeyHex or both fvkHex and ephemeralPublicKeyHex"
-        ));
-    };
-
+    let key_bytes =  Secret::<[u8; 32]>::new(
+        if let Some(ssk_bytes) = params.symmetric_key_bytes.as_ref() {
+            // if a symmetric key is provided, decode it directly
+            *ssk_bytes.expose_secret()
+        } else if let (Some(fvk_bytes), Some(epk_bytes)) = (params.extfvk_bytes.as_ref(), params.epk_bytes.as_ref()) {
+            // derive the key using the FVK and sender's public key
+            let symmetric_key_hash = internal_get_symmetric_key_receiver(fvk_bytes, &epk_bytes)?;
+            // Copy the first 32 bytes from the derived hash into our key buffer
+            symmetric_key_hash.as_bytes()[..32].try_into()?
+         } else {
+            return Err(anyhow!(
+                "Must provide either a symmetricKeyHex or both fvkHex and ephemeralPublicKeyHex"
+            ));
+        }
+    );
     // decode the ciphertext hex into a mutable byte buffer for in-place decryption
     let mut buffer = hex::decode(params.ciphertext_hex)?;
 
     // initialize the chacha20poly1305 cipher with the 32-byte key
-    let cipher = ChaCha20Poly1305::new_from_slice(&key_bytes)
+    let cipher = ChaCha20Poly1305::new_from_slice(&key_bytes.expose_secret().as_slice())
      .map_err(|e| anyhow!("Failed to create cipher: {}", e))?;
     let nonce = chacha20poly1305::Nonce::default();
 
