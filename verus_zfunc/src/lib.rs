@@ -3,10 +3,10 @@ use chacha20poly1305::{AeadInPlace, ChaCha20Poly1305, KeyInit};
 use hex;
 use rand_core::{CryptoRng, RngCore};
 use sha2::{Digest, Sha256};
-use std::io::{Cursor, Read};
+use std::io::{Cursor};
 
 use sapling::{
-    keys::SaplingIvk,
+    //keys::SaplingIvk,
     note_encryption::{PreparedIncomingViewingKey, SaplingDomain},
     value::NoteValue,
     zip32::{DiversifiableFullViewingKey, ExtendedSpendingKey, ExtendedFullViewingKey},
