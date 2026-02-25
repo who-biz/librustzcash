@@ -9,7 +9,7 @@ categories.workspace = true
 
 [lib]
 crate-type = ["cdylib", "rlib"]
-test = false
+test = true
 doctest = false
 
 [[bin]]
@@ -37,6 +37,7 @@ zcash_note_encryption.workspace = true
 zcash_primitives.workspace = true
 orchard = { workspace = true, optional = true }
 sapling.workspace = true
+bs58.workspace = true
 
 [features]
 run-test-bin = []

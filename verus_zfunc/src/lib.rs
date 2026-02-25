@@ -1,16 +1,12 @@
-use anyhow::{anyhow, Result};
+use anyhow::{ Result, anyhow};
 use chacha20poly1305::{AeadInPlace, ChaCha20Poly1305, KeyInit};
 use hex;
 use rand_core::{CryptoRng, RngCore};
 use sha2::{Digest, Sha256};
-use std::io::{Cursor, Read};
+use std::io::Cursor;
 
 use sapling::{
-    keys::SaplingIvk,
-    note_encryption::{PreparedIncomingViewingKey, SaplingDomain},
-    value::NoteValue,
-    zip32::{DiversifiableFullViewingKey, ExtendedSpendingKey, ExtendedFullViewingKey},
-    Note, Rseed,
+    Note, PaymentAddress, Rseed, note_encryption::{PreparedIncomingViewingKey, SaplingDomain}, value::NoteValue, zip32::{DiversifiableFullViewingKey, ExtendedFullViewingKey, ExtendedSpendingKey}
 };
 use zcash_keys::address::Address;
 use zcash_note_encryption::{Domain, EphemeralKeyBytes};
@@ -23,7 +19,7 @@ use blake2b_simd::{Hash as Blake2bHash};
 use secrecy::{ExposeSecret, SecretVec, Secret};
 
 // we don't need a specific module here, just don't make the function public
-fn internal_serialize_extended_fvk(extfvk: &ExtendedFullViewingKey) -> Result<Secret<[u8; 169]>> {
+fn internal_serialize_extended_fvk(extfvk: &ExtendedFullViewingKey) -> Result<[u8; 169]> {
     let mut out = [0u8; 169];
     {
         let mut w = Cursor::new(out.as_mut_slice());
@@ -31,10 +27,8 @@ fn internal_serialize_extended_fvk(extfvk: &ExtendedFullViewingKey) -> Result<Se
         if w.position() != 169 {
             return Err(anyhow!("Serializing extfvk produced incorrect length not equal to 169 bytes!"));
         }
-        let serialized = Secret::<[u8; 169]>::new(out);
-        Ok(serialized)
-
     }
+    Ok(out)
 }
 
 const VERUS_COIN_TYPE: u32 = 133;
@@ -59,16 +53,16 @@ impl CryptoRng for DummyRng {}
 
 // (Biz) seems this one is indeed the right way to go. we need to own the data to pass back up
 pub struct ChannelKeys {
-    pub address: String,
-    pub extfvk_bytes: Secret<[u8; 169]>,
+    pub address: PaymentAddress,
+    pub extfvk_bytes: [u8; 169],
     pub spending_key_bytes: Option<Secret<[u8; 169]>>,
     pub ivk_bytes: Secret<[u8; 32]>,
 }
 
 pub struct EncryptedPayload {
-    pub ephemeral_public_key: String,
-    pub ciphertext: String,
-    pub symmetric_key: Option<String>,
+    pub ephemeral_public_key: Vec<u8>,
+    pub ciphertext: Vec<u8>,
+    pub symmetric_key: Option<Vec<u8>>,
 }
 
 pub struct DecryptParams {
@@ -85,7 +79,8 @@ pub struct DecryptParams {
 fn internal_get_symmetric_key_receiver(
     dfvk_bytes: &Secret<[u8; 128]>,
     ephemeral_pk_bytes: &Secret<[u8; 32]>,
-) -> Result<Blake2bHash> {
+) -> Result<[u8; 32]> {
+
 
     // parse the viewing key bytes into a key object
     let dfvk = DiversifiableFullViewingKey::from_bytes(&dfvk_bytes.expose_secret())
@@ -105,9 +100,14 @@ fn internal_get_symmetric_key_receiver(
 
     // perform key agreement (ecdh) to calculate the shared secret
     let shared_secret = <SaplingDomain as Domain>::ka_agree_dec(&sapling_ivk, &prepared_epk);
+    
+ 
+    let hash = <SaplingDomain as Domain>::kdf(shared_secret, &epk_bytes);
 
-    // derive the final symmetric key using the key derivation function/kdf
-    Ok(<SaplingDomain as Domain>::kdf(shared_secret, &epk_bytes))
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&hash.as_bytes()[..32]);
+    Ok(key)
+
 }
 
 
@@ -118,7 +118,7 @@ fn internal_get_symmetric_key_receiver(
 fn internal_generate_symmetric_key_sender(
     address: &Address,
     rseed_bytes: &Secret<[u8; 32]>,
-) -> Result<(Blake2bHash, EphemeralKeyBytes)> {
+) -> Result<(Secret<[u8; 32]>, EphemeralKeyBytes)> {
 
     let recipient = match address {
         Address::Sapling(addr) => addr,
@@ -144,9 +144,15 @@ fn internal_generate_symmetric_key_sender(
     let shared_secret = <SaplingDomain as Domain>::ka_agree_enc(&esk, &recipient.pk_d());
 
     // derives the symmetric key using the shared secret and the ephemeral public key bytes
-    let symmetric_key: Blake2bHash = <SaplingDomain as Domain>::kdf(shared_secret, &epk_bytes);
+    let hash = <SaplingDomain as Domain>::kdf(shared_secret, &epk_bytes);
 
-    Ok((symmetric_key, epk_bytes))
+    //extract first 32 bytes
+
+    let mut symmetric_key = [0u8; 32];
+    symmetric_key.copy_from_slice(&hash.as_bytes()[..32]);
+
+
+     Ok((Secret::new(symmetric_key), epk_bytes))
 }
 
 
@@ -178,7 +184,7 @@ pub fn z_getencryptionaddress(
     seed: Option<&SecretVec<u8>>,  //TODO: create enum that combines seed & spending key in this layer into SeedMaterial variants
     spending_key: Option<&Secret<[u8; 169]>>,
     hd_index: Option<u32>,  //TODO: then combine hd_index with seed, to eliminate hd_index logic when extsk present
-    encryption_index: u32,
+    encryption_index: Option<u32>, // should be optional
     from_id: Option<&[u8; 20]>,
     to_id: Option<&[u8; 20]>,
     return_secret: bool,
@@ -222,47 +228,41 @@ pub fn z_getencryptionaddress(
     );
 
     // we compute a sha256 hash, and immediately pack this variable into a new secret array
-    let encryption_channel_seed: Secret::<[u8; 32]> = Secret::new({
+    let encryption_channel_seed = {
         let mut seed_hash = Sha256::new();
         //only expose base_sk Secret inside this scope
         seed_hash.update(base_sk.expose_secret());
 
         // serialize id bytes portion of seed, 0 is used in place if absent
         if let Some(from_id_bytes) = from_id {
-            let mut tmp  = *from_id_bytes;
-            tmp.reverse();
-            seed_hash.update(tmp);
+            seed_hash.update(from_id_bytes);
         } else {
             seed_hash.update(&[0u8]);
         }
         if let Some(to_id_bytes) = to_id {
-            let mut tmp = *to_id_bytes;
-            tmp.reverse();
-            seed_hash.update(tmp);
-        } else {
-            seed_hash.update(&[0u8]);
-        };
-
-        seed_hash.finalize().into()
-    });
+            seed_hash.update(to_id_bytes);
+        } 
+ 
+        let seed_hash: [u8;32] = seed_hash.finalize().into();
+        Secret::new(seed_hash)
+    };
 
     let channel_sk = ExtendedSpendingKey::master(encryption_channel_seed.expose_secret())
         .derive_child(ChildIndex::hardened(32))
         .derive_child(ChildIndex::hardened(VERUS_COIN_TYPE))
-        .derive_child(ChildIndex::hardened(encryption_index));
+        .derive_child(ChildIndex::hardened(encryption_index.unwrap_or(0)));
 
     let extfvk_bytes = internal_serialize_extended_fvk(&channel_sk.to_extended_full_viewing_key())?;
 
     let dfvk = channel_sk.to_diversifiable_full_viewing_key();
 
     let (_/*diversifier*/, payment_address) = dfvk.default_address();
-    let addr = Address::from(payment_address);
 
     let ivk_bytes = Secret::<[u8; 32]>::new(dfvk.to_ivk(Scope::External).0.to_bytes());
     
     // prepare the final address and fvk in the channelkeys struct to be returned
     let channel_keys = ChannelKeys {
-        address: addr.encode(&Network::MainNetwork),
+        address: payment_address,
         extfvk_bytes,
         spending_key_bytes: if return_secret {
             Some(Secret::<[u8; 169]>::new(channel_sk.to_bytes())) 
@@ -277,16 +277,13 @@ pub fn z_getencryptionaddress(
 
 
 // encrypts a message for a given zcash address
-pub fn encrypt_message(
-    address_string: String,
-    message: String,
+pub fn encrypt_data(
+    encrypt_address: PaymentAddress,
+    message: &[u8],
     return_ssk: bool,
 ) -> Result<EncryptedPayload> {
-    let network = Network::MainNetwork;
-
     // decode the address string into a structured address object
-    let addr = Address::decode(&network, &address_string)
-     .ok_or_else(|| anyhow!("Address is for the wrong network or invalid"))?;
+    let addr = Address::Sapling(encrypt_address);
 
     // generate fresh random bytes for the note's rseed
     let rseed_bytes = Secret::<[u8; 32]>::new({
@@ -297,17 +294,14 @@ pub fn encrypt_message(
 
     // call the internal helper to perform the key exchange
     // this returns the shared symmetric key and the public ephemeral key
-    let (symmetric_key_hash, epk_bytes) =
+    let (key_bytes, epk_bytes) =
         internal_generate_symmetric_key_sender(&addr, &rseed_bytes)?;
 
-    // The key for the cipher is the first 32 bytes of the 64-byte hash
-    let key_bytes: [u8; 32] = symmetric_key_hash.as_bytes()[..32].try_into()?;
-
     // initialize the chacha20poly1305 cipher with the 32-byte key
-    let cipher = ChaCha20Poly1305::new_from_slice(&key_bytes)
+    let cipher = ChaCha20Poly1305::new_from_slice(key_bytes.expose_secret())
       .map_err(|e| anyhow!("Failed to create cipher: {}", e))?;
     let nonce = chacha20poly1305::Nonce::default();
-    let mut buffer = message.into_bytes();
+    let mut buffer = message.to_vec();
 
     // encrypt the message in place using the cipher and nonce
     cipher
@@ -316,11 +310,11 @@ pub fn encrypt_message(
 
     // prepare the encrypted payload to be returned
     let result = EncryptedPayload {
-        ephemeral_public_key: hex::encode(epk_bytes.0),
-        ciphertext: hex::encode(buffer),
+        ephemeral_public_key: epk_bytes.0.to_vec(),
+        ciphertext: buffer,
         symmetric_key: if return_ssk {
             // IMPORTANT: Return the 32-byte key that was actually used for encryption
-            Some(hex::encode(key_bytes))
+            Some(key_bytes.expose_secret().to_vec())
         } else {
             None
         },
@@ -331,21 +325,29 @@ pub fn encrypt_message(
 
 // decrypts a message using either a direct symmetric key, or by deriving
 // the key from a full viewing key and the senders ephemeral public key
-pub fn decrypt_message(params: DecryptParams) -> Result<String> {
+pub fn decrypt(params: DecryptParams) -> Result<Vec<u8>> {
     let key_bytes =  Secret::<[u8; 32]>::new(
         if let Some(ssk_bytes) = params.symmetric_key_bytes.as_ref() {
             // if a symmetric key is provided, decode it directly
             *ssk_bytes.expose_secret()
-        } else if let (Some(fvk_bytes), Some(epk_bytes)) = (params.extfvk_bytes.as_ref(), params.epk_bytes.as_ref()) {
-            // derive the key using the FVK and sender's public key
-            let symmetric_key_hash = internal_get_symmetric_key_receiver(fvk_bytes, &epk_bytes)?;
-            // Copy the first 32 bytes from the derived hash into our key buffer
-            symmetric_key_hash.as_bytes()[..32].try_into()?
+        } 
+        else if let (Some(fvk_bytes), Some(epk_bytes)) = 
+        (params.extfvk_bytes.as_ref(), 
+        params.epk_bytes.as_ref()) 
+        {
+           
+        internal_get_symmetric_key_receiver(fvk_bytes, epk_bytes)?
+
+            // // derive the key using the FVK and sender's public key
+            // let symmetric_key_hash = internal_get_symmetric_key_receiver(fvk_bytes, &epk_bytes)?;
+            // // Copy the first 32 bytes from the derived hash into our key buffer
+            // symmetric_key_hash.as_bytes()[..32].try_into()?
          } else {
             return Err(anyhow!(
                 "Must provide either a symmetricKeyHex or both fvkHex and ephemeralPublicKeyHex"
             ));
         }
+
     );
     // decode the ciphertext hex into a mutable byte buffer for in-place decryption
     let mut buffer = hex::decode(params.ciphertext_hex)?;
@@ -360,7 +362,6 @@ pub fn decrypt_message(params: DecryptParams) -> Result<String> {
    .decrypt_in_place(&nonce, b"", &mut buffer)
    .map_err(|_| anyhow!("Decryption failed. Key or ciphertext may be incorrect."))?;
 
-     // convert the decrypted bytes back into a readable string
-    String::from_utf8(buffer)
-   .map_err(|_| anyhow!("Failed to parse decrypted message as a UTF-8 string.").into())
+   Ok(buffer)
 }
+
