@@ -39,7 +39,6 @@ fn internal_serialize_extended_fvk(extfvk: &ExtendedFullViewingKey) -> Result<Se
 
 const VERUS_COIN_TYPE: u32 = 133;
 
-// TODO: (Biz) definitely looks like we need to fix this...
 struct DummyRng;
 impl RngCore for DummyRng {
     fn next_u32(&mut self) -> u32 { 0 }
@@ -132,7 +131,8 @@ fn internal_generate_symmetric_key_sender(
     let note = Note::from_parts(recipient.clone(), NoteValue::from_raw(0), rseed);
 
     // create a dummy rng to satisfy the function signature. this is not used for randomness.
-    //TODO: (Biz) re: above comment... seems like it is? see generate_or_derive_esk()
+
+    // (Biz) this is fine ONLY when we construct Rseed::AfterZip212 as above (!!)
     let mut dummy_rng = DummyRng;
 
     // generates a new, single-use ephemeral secret key (esk) deterministically from the rseed.
