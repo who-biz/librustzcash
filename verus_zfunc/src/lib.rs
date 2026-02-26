@@ -66,7 +66,7 @@ pub struct EncryptedPayload {
 }
 
 pub struct DecryptParams {
-    pub extfvk_bytes: Option<Secret<[u8; 128]>>,
+    pub extfvk_bytes: Option<[u8; 128]>, // don't need secret, not a secret in daemon
     pub epk_bytes: Option<Secret<[u8; 32]>>,
     pub ciphertext_hex: String,
     pub symmetric_key_bytes: Option<Secret<[u8; 32]>>,
@@ -77,7 +77,7 @@ pub struct DecryptParams {
 // and the sender's public key
 
 fn internal_get_symmetric_key_receiver(
-    dfvk_bytes: &Secret<[u8; 128]>,
+    dfvk_bytes: &[u8; 128],
     ephemeral_pk_bytes: &Secret<[u8; 32]>,
 ) -> Result<[u8; 32]> {
 
