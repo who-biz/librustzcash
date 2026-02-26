@@ -18,18 +18,19 @@ use blake2b_simd::{Hash as Blake2bHash};
 
 use secrecy::{ExposeSecret, SecretVec, Secret};
 
-// we don't need a specific module here, just don't make the function public
-fn internal_serialize_extended_fvk(extfvk: &ExtendedFullViewingKey) -> Result<[u8; 169]> {
-    let mut out = [0u8; 169];
-    {
-        let mut w = Cursor::new(out.as_mut_slice());
-        extfvk.write(&mut w)?;
-        if w.position() != 169 {
-            return Err(anyhow!("Serializing extfvk produced incorrect length not equal to 169 bytes!"));
-        }
-    }
-    Ok(out)
-}
+// WE do not need this anymore
+
+// fn internal_serialize_extended_fvk(extfvk: &ExtendedFullViewingKey) -> Result<ExtendedFullViewingKey> {
+//     let mut out = [0u8; 169];
+//     {
+//         let mut w = Cursor::new(out.as_mut_slice());
+//         extfvk.write(&mut w)?;
+//         if w.position() != 169 {
+//             return Err(anyhow!("Serializing extfvk produced incorrect length not equal to 169 bytes!"));
+//         }
+//     }
+//     Ok(out)
+// }
 
 const VERUS_COIN_TYPE: u32 = 133;
 
@@ -54,7 +55,7 @@ impl CryptoRng for DummyRng {}
 // (Biz) seems this one is indeed the right way to go. we need to own the data to pass back up
 pub struct ChannelKeys {
     pub address: PaymentAddress,
-    pub extfvk_bytes: [u8; 169],
+    pub extfvk_bytes: ExtendedFullViewingKey,
     pub spending_key_bytes: Option<Secret<[u8; 169]>>,
     pub ivk_bytes: Secret<[u8; 32]>,
 }
@@ -66,7 +67,7 @@ pub struct EncryptedPayload {
 }
 
 pub struct DecryptParams {
-    pub extfvk_bytes: Option<[u8; 128]>, // don't need secret, not a secret in daemon
+    pub extfvk_bytes: Option<ExtendedFullViewingKey>, // don't need secret, not a secret in daemon
     pub epk_bytes: Option<Secret<[u8; 32]>>,
     pub ciphertext_hex: String,
     pub symmetric_key_bytes: Option<Secret<[u8; 32]>>,
@@ -77,17 +78,14 @@ pub struct DecryptParams {
 // and the sender's public key
 
 fn internal_get_symmetric_key_receiver(
-    dfvk_bytes: &[u8; 128],
+    extfvk: &ExtendedFullViewingKey,
     ephemeral_pk_bytes: &Secret<[u8; 32]>,
 ) -> Result<[u8; 32]> {
 
+    // we do not need 
+    let ivk = extfvk.fvk.vk.ivk();
 
-    // parse the viewing key bytes into a key object
-    let dfvk = DiversifiableFullViewingKey::from_bytes(&dfvk_bytes.expose_secret())
-      .ok_or_else(|| anyhow!("Failed to parse DFVK from bytes"))?;
-
-   // extract the incoming viewing key (ivk), the private part needed for decryption
-    let sapling_ivk = PreparedIncomingViewingKey::new(&dfvk.to_ivk(Scope::External));
+    let sapling_ivk = PreparedIncomingViewingKey::new(&ivk);
 
     // parse the sender's public key bytes into a key object
     let epk_bytes = EphemeralKeyBytes(*ephemeral_pk_bytes.expose_secret());
@@ -252,7 +250,7 @@ pub fn z_getencryptionaddress(
         .derive_child(ChildIndex::hardened(VERUS_COIN_TYPE))
         .derive_child(ChildIndex::hardened(encryption_index.unwrap_or(0)));
 
-    let extfvk_bytes = internal_serialize_extended_fvk(&channel_sk.to_extended_full_viewing_key())?;
+    let extfvk_bytes = channel_sk.to_extended_full_viewing_key();
 
     let dfvk = channel_sk.to_diversifiable_full_viewing_key();
 
@@ -263,7 +261,7 @@ pub fn z_getencryptionaddress(
     // prepare the final address and fvk in the channelkeys struct to be returned
     let channel_keys = ChannelKeys {
         address: payment_address,
-        extfvk_bytes,
+        extfvk_bytes: extfvk_bytes,
         spending_key_bytes: if return_secret {
             Some(Secret::<[u8; 169]>::new(channel_sk.to_bytes())) 
         } else {
@@ -325,18 +323,18 @@ pub fn encrypt_data(
 
 // decrypts a message using either a direct symmetric key, or by deriving
 // the key from a full viewing key and the senders ephemeral public key
-pub fn decrypt(params: DecryptParams) -> Result<Vec<u8>> {
+pub fn decrypt_data(params: DecryptParams) -> Result<Vec<u8>> {
     let key_bytes =  Secret::<[u8; 32]>::new(
         if let Some(ssk_bytes) = params.symmetric_key_bytes.as_ref() {
             // if a symmetric key is provided, decode it directly
             *ssk_bytes.expose_secret()
         } 
-        else if let (Some(fvk_bytes), Some(epk_bytes)) = 
-        (params.extfvk_bytes.as_ref(), 
+        else if let (Some(extfvk), Some(epk_bytes)) = 
+        (params.extfvk_bytes, 
         params.epk_bytes.as_ref()) 
         {
            
-        internal_get_symmetric_key_receiver(fvk_bytes, epk_bytes)?
+        internal_get_symmetric_key_receiver(&extfvk, epk_bytes)?
 
             // // derive the key using the FVK and sender's public key
             // let symmetric_key_hash = internal_get_symmetric_key_receiver(fvk_bytes, &epk_bytes)?;

@@ -1,10 +1,10 @@
-use verus_zfunc::{z_getencryptionaddress, encrypt_data, decrypt, DecryptParams};
+use verus_zfunc::{z_getencryptionaddress, encrypt_data, decrypt_data, DecryptParams}; // Fixed import name
 use secrecy::{SecretVec, Secret, ExposeSecret};
 use hex;
 use zcash_primitives::consensus::Network;
 use zcash_keys::address::Address;
 use zcash_keys::encoding::{encode_extended_spending_key, encode_extended_full_viewing_key};
-use sapling::zip32::{ExtendedSpendingKey, ExtendedFullViewingKey};
+use sapling::zip32::{ExtendedSpendingKey}; // Removed ExtendedFullViewingKey here as we don't need to parse it
 use bs58;
 
 fn iaddress_to_hash160(iaddress: &str) -> [u8; 20] {
@@ -15,21 +15,19 @@ fn iaddress_to_hash160(iaddress: &str) -> [u8; 20] {
     decoded[1..21].try_into().unwrap()
 }
 
-
 fn main() {
     let seed_hex = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     let seed_bytes = hex::decode(seed_hex).unwrap();
     let seed = SecretVec::new(seed_bytes);
 
-    let from_id = iaddress_to_hash160("i94XrwNp9cMghEZ16fq7Fcd3XE57VNBWvo"); // neptune.cybermoney@
-    let to_id   = iaddress_to_hash160("i4NpJp1vqrXgDvSNBXkNYvTR1VF2HMkeDA"); // mike@
-
+    let from_id = iaddress_to_hash160("i94XrwNp9cMghEZ16fq7Fcd3XE57VNBWvo");
+    let to_id   = iaddress_to_hash160("i4NpJp1vqrXgDvSNBXkNYvTR1VF2HMkeDA");
 
     // ── Test 1: no IDs baseline ────────────────────────────────────────────────
     println!("\n=== Test 1: no IDs (baseline vs daemon) ===");
     match z_getencryptionaddress(
         Some(&seed), None, Some(0), Some(0),
-        Some(&from_id), None,
+        None, None,
         true,
     ) {
         Ok(channel_keys) => {
@@ -43,10 +41,8 @@ fn main() {
                 }
             }
 
-            match ExtendedFullViewingKey::read(&mut channel_keys.extfvk_bytes.as_ref()) {
-                Ok(extfvk) => println!("ExtFVK:  {}", encode_extended_full_viewing_key("zxviews", &extfvk)),
-                Err(e)     => println!("ExtFVK:  failed to decode: {}", e),
-            }
+            // Directly use the struct already present in channel_keys
+            println!("ExtFVK:  {}", encode_extended_full_viewing_key("zxviews", &channel_keys.extfvk_bytes));
         }
         Err(e) => println!("Error in Test 1: {}", e),
     }
@@ -70,10 +66,8 @@ fn main() {
                 }
             }
 
-            match ExtendedFullViewingKey::read(&mut channel_keys.extfvk_bytes.as_ref()) {
-                Ok(extfvk) => println!("ExtFVK:  {}", encode_extended_full_viewing_key("zxviews", &extfvk)),
-                Err(e)     => println!("ExtFVK:  failed to decode: {}", e),
-            }
+            // Directly use the struct
+            println!("ExtFVK:  {}", encode_extended_full_viewing_key("zxviews", &channel_keys.extfvk_bytes));
 
             // ── Test 3: encrypt ────────────────────────────────────────────────
             println!("\n=== Test 3: encrypt_data ===");
@@ -87,16 +81,20 @@ fn main() {
                         let bytes: [u8; 32] = ssk.as_slice().try_into().unwrap();
                         Secret::new(bytes)
                     });
-                    println!("SSK:        {}", hex::encode(ssk_bytes.as_ref().unwrap().expose_secret()));
+                    
+                    if let Some(ref ssk) = ssk_bytes {
+                         println!("SSK:        {}", hex::encode(ssk.expose_secret()));
+                    }
 
                     let params = DecryptParams {
-                        extfvk_bytes: None,
+                        // Use clone() here to move the struct into params
+                        extfvk_bytes: Some(channel_keys.extfvk_bytes.clone()),
                         epk_bytes: None,
                         ciphertext_hex: hex::encode(&payload.ciphertext),
                         symmetric_key_bytes: ssk_bytes,
                     };
 
-                    match decrypt(params) {
+                    match decrypt_data(params) {
                         Ok(msg) => println!("Decrypted: {}", String::from_utf8(msg).unwrap()),
                         Err(e)  => println!("Decrypt error: {}", e),
                     }
