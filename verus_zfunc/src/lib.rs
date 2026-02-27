@@ -3,10 +3,9 @@ use chacha20poly1305::{AeadInPlace, ChaCha20Poly1305, KeyInit};
 use hex;
 use rand_core::{CryptoRng, RngCore};
 use sha2::{Digest, Sha256};
-use std::io::Cursor;
 
 use sapling::{
-    Note, PaymentAddress, Rseed, note_encryption::{PreparedIncomingViewingKey, SaplingDomain}, value::NoteValue, zip32::{DiversifiableFullViewingKey, ExtendedFullViewingKey, ExtendedSpendingKey}
+    Note, PaymentAddress, Rseed, SaplingIvk, note_encryption::{PreparedIncomingViewingKey, SaplingDomain}, value::NoteValue, zip32::{DiversifiableFullViewingKey, ExtendedFullViewingKey, ExtendedSpendingKey}
 };
 use zcash_keys::address::Address;
 use zcash_note_encryption::{Domain, EphemeralKeyBytes};
@@ -14,10 +13,8 @@ use zcash_primitives::{
     consensus::Network,
     zip32::{ChildIndex, Scope},
 };
-use blake2b_simd::{Hash as Blake2bHash};
-
 use secrecy::{ExposeSecret, SecretVec, Secret};
-
+use jubjub::Fr;
 // WE do not need this anymore
 
 // fn internal_serialize_extended_fvk(extfvk: &ExtendedFullViewingKey) -> Result<ExtendedFullViewingKey> {
@@ -47,17 +44,12 @@ impl RngCore for DummyRng {
 }
 impl CryptoRng for DummyRng {}
 
-
-//TODO: check all of the below 'pub' members
-// anywhere we can prevent exposing this info, we should do so
-// we need to lock down RpcParams, ChannelKeys, Encrypted Payload, and DecryptParams as much as possible
-
 // (Biz) seems this one is indeed the right way to go. we need to own the data to pass back up
 pub struct ChannelKeys {
     pub address: PaymentAddress,
     pub extfvk_bytes: ExtendedFullViewingKey,
     pub spending_key_bytes: Option<Secret<[u8; 169]>>,
-    pub ivk_bytes: Secret<[u8; 32]>,
+    pub ivk_bytes: [u8; 32], // not a secret always returned by the daemon
 }
 
 pub struct EncryptedPayload {
@@ -67,7 +59,7 @@ pub struct EncryptedPayload {
 }
 
 pub struct DecryptParams {
-    pub extfvk_bytes: Option<ExtendedFullViewingKey>, // don't need secret, not a secret in daemon
+    pub ivk_bytes: Option<[u8; 32]>, // use ivk directly if we are deriving that for decryption
     pub epk_bytes: Option<Secret<[u8; 32]>>,
     pub ciphertext_hex: String,
     pub symmetric_key_bytes: Option<Secret<[u8; 32]>>,
@@ -78,12 +70,13 @@ pub struct DecryptParams {
 // and the sender's public key
 
 fn internal_get_symmetric_key_receiver(
-    extfvk: &ExtendedFullViewingKey,
+    ivk_bytes: &[u8; 32],
     ephemeral_pk_bytes: &Secret<[u8; 32]>,
 ) -> Result<[u8; 32]> {
 
-    // we do not need 
-    let ivk = extfvk.fvk.vk.ivk();
+    // we can use ivk_bytes direct to create the sapling ivk.
+    let ivk = SaplingIvk(Option::<Fr>::from(Fr::from_bytes(ivk_bytes))
+        .ok_or_else(|| anyhow!("Failed to parse ivk bytes into SaplingIvk"))?);
 
     let sapling_ivk = PreparedIncomingViewingKey::new(&ivk);
 
@@ -256,7 +249,8 @@ pub fn z_getencryptionaddress(
 
     let (_/*diversifier*/, payment_address) = dfvk.default_address();
 
-    let ivk_bytes = Secret::<[u8; 32]>::new(dfvk.to_ivk(Scope::External).0.to_bytes());
+    // get the ivk_bytes directly from the dfvk
+    let ivk_bytes = dfvk.to_ivk(Scope::External).0.to_bytes();
     
     // prepare the final address and fvk in the channelkeys struct to be returned
     let channel_keys = ChannelKeys {
@@ -277,7 +271,7 @@ pub fn z_getencryptionaddress(
 // encrypts a message for a given zcash address
 pub fn encrypt_data(
     encrypt_address: PaymentAddress,
-    message: &[u8],
+    encrypt_data: &[u8],
     return_ssk: bool,
 ) -> Result<EncryptedPayload> {
     // decode the address string into a structured address object
@@ -299,7 +293,7 @@ pub fn encrypt_data(
     let cipher = ChaCha20Poly1305::new_from_slice(key_bytes.expose_secret())
       .map_err(|e| anyhow!("Failed to create cipher: {}", e))?;
     let nonce = chacha20poly1305::Nonce::default();
-    let mut buffer = message.to_vec();
+    let mut buffer = encrypt_data.to_vec();
 
     // encrypt the message in place using the cipher and nonce
     cipher
@@ -329,17 +323,12 @@ pub fn decrypt_data(params: DecryptParams) -> Result<Vec<u8>> {
             // if a symmetric key is provided, decode it directly
             *ssk_bytes.expose_secret()
         } 
-        else if let (Some(extfvk), Some(epk_bytes)) = 
-        (params.extfvk_bytes, 
+        else if let (Some(ivk_bytes), Some(epk_bytes)) = 
+        (params.ivk_bytes.as_ref(), 
         params.epk_bytes.as_ref()) 
         {
            
-        internal_get_symmetric_key_receiver(&extfvk, epk_bytes)?
-
-            // // derive the key using the FVK and sender's public key
-            // let symmetric_key_hash = internal_get_symmetric_key_receiver(fvk_bytes, &epk_bytes)?;
-            // // Copy the first 32 bytes from the derived hash into our key buffer
-            // symmetric_key_hash.as_bytes()[..32].try_into()?
+        internal_get_symmetric_key_receiver(ivk_bytes, epk_bytes)?
          } else {
             return Err(anyhow!(
                 "Must provide either a symmetricKeyHex or both fvkHex and ephemeralPublicKeyHex"

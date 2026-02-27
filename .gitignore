@@ -4,3 +4,4 @@ target
 
 Cargo.lock
 rust-toolchain.toml
+verus_zfunc/src/bin/run_test.rs
