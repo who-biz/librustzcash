@@ -54,8 +54,8 @@ pub struct ChannelKeys {
 
 pub struct EncryptedPayload {
     pub ephemeral_public_key: [u8; 32], // fixed size arrays as daemon returns
-    pub decrypted_data: Vec<u8>,            // variable length so i think suitable data type as JS layer DataDescriptor uses buffer types 
-    pub symmetric_key: Option<[u8; 32]>, // only return the symmetric key if explicitly requested
+    pub decrypted_data: Vec<u8>,            // variable length so i think suitable data type as JS layer DataDescriptor uses buffer types, VDXFOrdinals internally uses buffers only serailizes to hex when outputting to JSON
+    pub symmetric_key: Option<Secret<[u8; 32]>>, // only return the symmetric key if explicitly requested, this can be removed
 }
 
 pub struct DecryptParams {
@@ -72,7 +72,7 @@ pub struct DecryptParams {
 fn internal_get_symmetric_key_receiver(
     ivk_bytes: &[u8; 32],
     ephemeral_pk_bytes: &[u8; 32],
-) -> Result<[u8; 32]> {
+) -> Result<Secret<[u8; 32]>> {
 
     // we can use ivk_bytes direct to create the sapling ivk.
     let ivk = SaplingIvk(Option::<Fr>::from(Fr::from_bytes(ivk_bytes))
@@ -97,7 +97,7 @@ fn internal_get_symmetric_key_receiver(
 
     let mut key = [0u8; 32];
     key.copy_from_slice(&hash.as_bytes()[..32]);
-    Ok(key)
+    Ok(Secret::new(key))
 
 }
 
@@ -306,7 +306,7 @@ pub fn encrypt_data(
         decrypted_data: buffer,
         symmetric_key: if return_ssk {
             // IMPORTANT: Return the 32-byte key that was actually used for encryption
-            Some(*key_bytes.expose_secret())
+            Some(key_bytes)
         } else {
             None
         },
@@ -318,24 +318,20 @@ pub fn encrypt_data(
 // decrypts a message using either a direct symmetric key, or by deriving
 // the key from a full viewing key and the senders ephemeral public key
 pub fn decrypt_data(params: DecryptParams) -> Result<Vec<u8>> {
-    let key_bytes =  Secret::<[u8; 32]>::new(
-        if let Some(ssk_bytes) = params.symmetric_key_bytes.as_ref() {
-            // if a symmetric key is provided, decode it directly
-            *ssk_bytes.expose_secret()
-        } 
-        else if let (Some(ivk_bytes), Some(epk_bytes)) = 
-        (params.ivk_bytes.as_ref(), 
-        params.epk_bytes.as_ref()) 
-        {
-           
+    
+    let key_bytes: Secret<[u8; 32]> = if let Some (ssk_bytes) = params.symmetric_key_bytes.as_ref() 
+    {
+        Secret::new(*ssk_bytes.expose_secret())
+    } else if let (Some(ivk_bytes), Some(epk_bytes)) = (
+        params.ivk_bytes.as_ref(),
+        params.epk_bytes.as_ref()
+    ){
         internal_get_symmetric_key_receiver(ivk_bytes, epk_bytes)?
-         } else {
-            return Err(anyhow!(
-                "Must provide either a symmetricKeyHex or both fvkHex and ephemeralPublicKeyHex"
-            ));
-        }
-
-    );
+    }
+    else{
+        return Err(anyhow!("Must provide either a symmetric key or both ivk and epk bytes"));
+    };
+    
     // decode the data into a mutable byte buffer for in-place decryption
     let mut buffer = params.data_to_encrypt;
 
