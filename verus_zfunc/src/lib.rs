@@ -61,8 +61,8 @@ pub struct EncryptedPayload {
 pub struct DecryptParams {
     pub ivk_bytes: Option<[u8; 32]>, // use ivk directly instead of extfvk if we are deriving that for decryption
     pub epk_bytes: Option<[u8; 32]>, // using epk directly not a secret
-    pub data_to_encrypt: Vec<u8>, // same will be an object 
-    pub symmetric_key_bytes: Option<Secret<[u8; 32]>>, // TODO: can this be removed? the daemon does not return it and derived internally
+    pub data_to_encrypt: Vec<u8>, // same can be an object 
+    pub symmetric_key_bytes: Option<Secret<[u8; 32]>>, // if provided skip internal key agreement and use this directly for decryption. this is a secret because it is the actual key used for encryption, so if we are returning it from encrypt_data, we want to make sure it is not accidentally leaked by the JS layer if not explicitly requested.
 }
 
 
