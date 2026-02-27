@@ -53,16 +53,16 @@ pub struct ChannelKeys {
 }
 
 pub struct EncryptedPayload {
-    pub ephemeral_public_key: Vec<u8>,
-    pub ciphertext: Vec<u8>,
-    pub symmetric_key: Option<Vec<u8>>,
+    pub ephemeral_public_key: [u8; 32], // fixed size arrays as daemon returns
+    pub decrypted_data: Vec<u8>,            // variable length so i think suitable data type as JS layer DataDescriptor uses buffer types 
+    pub symmetric_key: Option<[u8; 32]>, // only return the symmetric key if explicitly requested
 }
 
 pub struct DecryptParams {
-    pub ivk_bytes: Option<[u8; 32]>, // use ivk directly if we are deriving that for decryption
-    pub epk_bytes: Option<Secret<[u8; 32]>>,
-    pub ciphertext_hex: String,
-    pub symmetric_key_bytes: Option<Secret<[u8; 32]>>,
+    pub ivk_bytes: Option<[u8; 32]>, // use ivk directly instead of extfvk if we are deriving that for decryption
+    pub epk_bytes: Option<[u8; 32]>, // using epk directly not a secret
+    pub data_to_encrypt: Vec<u8>, // same will be an object 
+    pub symmetric_key_bytes: Option<Secret<[u8; 32]>>, // TODO: can this be removed? the daemon does not return it and derived internally
 }
 
 
@@ -71,7 +71,7 @@ pub struct DecryptParams {
 
 fn internal_get_symmetric_key_receiver(
     ivk_bytes: &[u8; 32],
-    ephemeral_pk_bytes: &Secret<[u8; 32]>,
+    ephemeral_pk_bytes: &[u8; 32],
 ) -> Result<[u8; 32]> {
 
     // we can use ivk_bytes direct to create the sapling ivk.
@@ -81,7 +81,7 @@ fn internal_get_symmetric_key_receiver(
     let sapling_ivk = PreparedIncomingViewingKey::new(&ivk);
 
     // parse the sender's public key bytes into a key object
-    let epk_bytes = EphemeralKeyBytes(*ephemeral_pk_bytes.expose_secret());
+    let epk_bytes = EphemeralKeyBytes(*ephemeral_pk_bytes);
 
     let epk = <SaplingDomain as Domain>::epk(&epk_bytes)
       .ok_or_else(|| anyhow!("Failed to create EphemeralPublicKey"))?;
@@ -271,7 +271,7 @@ pub fn z_getencryptionaddress(
 // encrypts a message for a given zcash address
 pub fn encrypt_data(
     encrypt_address: PaymentAddress,
-    encrypt_data: &[u8],
+    encrypt_data: Vec<u8>,
     return_ssk: bool,
 ) -> Result<EncryptedPayload> {
     // decode the address string into a structured address object
@@ -293,7 +293,7 @@ pub fn encrypt_data(
     let cipher = ChaCha20Poly1305::new_from_slice(key_bytes.expose_secret())
       .map_err(|e| anyhow!("Failed to create cipher: {}", e))?;
     let nonce = chacha20poly1305::Nonce::default();
-    let mut buffer = encrypt_data.to_vec();
+    let mut buffer = encrypt_data;
 
     // encrypt the message in place using the cipher and nonce
     cipher
@@ -302,11 +302,11 @@ pub fn encrypt_data(
 
     // prepare the encrypted payload to be returned
     let result = EncryptedPayload {
-        ephemeral_public_key: epk_bytes.0.to_vec(),
-        ciphertext: buffer,
+        ephemeral_public_key: epk_bytes.0,
+        decrypted_data: buffer,
         symmetric_key: if return_ssk {
             // IMPORTANT: Return the 32-byte key that was actually used for encryption
-            Some(key_bytes.expose_secret().to_vec())
+            Some(*key_bytes.expose_secret())
         } else {
             None
         },
@@ -336,8 +336,8 @@ pub fn decrypt_data(params: DecryptParams) -> Result<Vec<u8>> {
         }
 
     );
-    // decode the ciphertext hex into a mutable byte buffer for in-place decryption
-    let mut buffer = hex::decode(params.ciphertext_hex)?;
+    // decode the data into a mutable byte buffer for in-place decryption
+    let mut buffer = params.data_to_encrypt;
 
     // initialize the chacha20poly1305 cipher with the 32-byte key
     let cipher = ChaCha20Poly1305::new_from_slice(&key_bytes.expose_secret().as_slice())
