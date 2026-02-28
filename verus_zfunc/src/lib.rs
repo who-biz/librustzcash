@@ -59,7 +59,7 @@ pub struct EncryptedPayload {
 }
 
 pub struct DecryptParams {
-    pub ivk_bytes: Option<[u8; 32]>, // use ivk directly instead of extfvk if we are deriving that for decryption
+    pub ivk_bytes: Secret<Option<[u8; 32]>>, // use ivk directly instead of extfvk as a secret to zeroize after
     pub epk_bytes: Option<[u8; 32]>, // using epk directly not a secret
     pub data_to_decrypt: SecretVec<u8>, // Should be a Secret to Zeroize after decryption. so if it fails to decrypt, the data is not leaked. if decryption is successful
     pub symmetric_key_bytes: Option<Secret<[u8; 32]>>, // if provided skip internal key agreement and use this directly for decryption. this is a secret because it is the actual key used for encryption, so if we are returning it from encrypt_data, we want to make sure it is not accidentally leaked by the JS layer if not explicitly requested.
@@ -70,12 +70,12 @@ pub struct DecryptParams {
 // and the sender's public key
 
 fn internal_get_symmetric_key_receiver(
-    ivk_bytes: &[u8; 32],
+    ivk_bytes: &Secret<[u8; 32]>,
     ephemeral_pk_bytes: &[u8; 32],
 ) -> Result<Secret<[u8; 32]>> {
 
     // we can use ivk_bytes direct to create the sapling ivk.
-    let ivk = SaplingIvk(Option::<Fr>::from(Fr::from_bytes(ivk_bytes))
+    let ivk = SaplingIvk(Option::<Fr>::from(Fr::from_bytes(ivk_bytes.expose_secret()))
         .ok_or_else(|| anyhow!("Failed to parse ivk bytes into SaplingIvk"))?);
 
     let sapling_ivk = PreparedIncomingViewingKey::new(&ivk);
@@ -95,8 +95,7 @@ fn internal_get_symmetric_key_receiver(
  
     let hash = <SaplingDomain as Domain>::kdf(shared_secret, &epk_bytes);
 
-    let mut key = [0u8; 32];
-    key.copy_from_slice(&hash.as_bytes()[..32]);
+    let mut key: [u8;32] = hash.as_bytes()[..32].try_into().map_err(|_| anyhow!("Failed to derive symmetric key: hash output is too short"))?;
     Ok(Secret::new(key))
 
 }
@@ -256,7 +255,7 @@ pub fn z_getencryptionaddress(
     let (_/*diversifier*/, payment_address) = dfvk.default_address();
 
     // get the ivk_bytes directly from the dfvk
-    let ivk_bytes = dfvk.to_ivk(Scope::External).0.to_bytes();
+    let derived_ivk_bytes = dfvk.to_ivk(Scope::External).0.to_bytes();
     
     // prepare the final address and fvk in the channelkeys struct to be returned
     let channel_keys = ChannelKeys {
@@ -267,7 +266,7 @@ pub fn z_getencryptionaddress(
         } else {
             None
         },
-        ivk_bytes: Secret::new(ivk_bytes)
+        ivk_bytes: Secret::new(derived_ivk_bytes)
     };
 
     Ok(channel_keys)
@@ -335,6 +334,7 @@ pub fn decrypt_data(params: DecryptParams) -> Result<Vec<u8>> {
         params.ivk_bytes.as_ref(),
         params.epk_bytes.as_ref()
     ){
+        // reference and generate a symmetric key
         internal_get_symmetric_key_receiver(ivk_bytes, epk_bytes)?
     }
     else{
