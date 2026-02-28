@@ -59,7 +59,7 @@ pub struct EncryptedPayload {
 }
 
 pub struct DecryptParams {
-    pub ivk_bytes: Secret<Option<[u8; 32]>>, // use ivk directly instead of extfvk as a secret to zeroize after
+    pub ivk_bytes: Option<Secret<[u8; 32]>>, // use ivk directly instead of extfvk as a secret to zeroize after
     pub epk_bytes: Option<[u8; 32]>, // using epk directly not a secret
     pub data_to_decrypt: SecretVec<u8>, // Should be a Secret to Zeroize after decryption. so if it fails to decrypt, the data is not leaked. if decryption is successful
     pub symmetric_key_bytes: Option<Secret<[u8; 32]>>, // if provided skip internal key agreement and use this directly for decryption. this is a secret because it is the actual key used for encryption, so if we are returning it from encrypt_data, we want to make sure it is not accidentally leaked by the JS layer if not explicitly requested.
@@ -174,7 +174,7 @@ pub fn z_getencryptionaddress(
     seed: Option<&SecretVec<u8>>,  //TODO: create enum that combines seed & spending key in this layer into SeedMaterial variants
     spending_key: Option<&Secret<[u8; 169]>>,
     hd_index: Option<u32>,  //TODO: then combine hd_index with seed, to eliminate hd_index logic when extsk present
-    encryption_index: Option<u32>, // should be optional
+    encryption_index: Option<u32>, // should be optional, 
     from_id: Option<&[u8; 20]>,
     to_id: Option<&[u8; 20]>,
     return_secret: bool,
