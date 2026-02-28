@@ -47,21 +47,21 @@ impl CryptoRng for DummyRng {}
 // (Biz) seems this one is indeed the right way to go. we need to own the data to pass back up
 pub struct ChannelKeys {
     pub address: PaymentAddress,
-    pub extfvk_bytes: ExtendedFullViewingKey,
+    pub extfvk_bytes: Secret<[u8; 169]>, // ExtendedFullViewingKey does not implement Zerioize, back to 169 bytes
     pub spending_key_bytes: Option<Secret<[u8; 169]>>,
-    pub ivk_bytes: [u8; 32], // not a secret always returned by the daemon
+    pub ivk_bytes: Secret<[u8; 32]>, 
 }
 
 pub struct EncryptedPayload {
     pub ephemeral_public_key: [u8; 32], // fixed size arrays as daemon returns
-    pub decrypted_data: Vec<u8>,            // variable length so i think suitable data type as JS layer DataDescriptor uses buffer types, VDXFOrdinals internally uses buffers only serailizes to hex when outputting to JSON
+    pub encrypted_data: Vec<u8>,         // variable length so i think suitable data type as JS layer DataDescriptor uses buffer types, VDXFOrdinals internally uses buffers only serailizes to hex when outputting to JSON
     pub symmetric_key: Option<Secret<[u8; 32]>>, // only return the symmetric key if explicitly requested, this can be removed
 }
 
 pub struct DecryptParams {
     pub ivk_bytes: Option<[u8; 32]>, // use ivk directly instead of extfvk if we are deriving that for decryption
     pub epk_bytes: Option<[u8; 32]>, // using epk directly not a secret
-    pub data_to_encrypt: Vec<u8>, // same can be an object 
+    pub data_to_decrypt: SecretVec<u8>, // Should be a Secret to Zeroize after decryption. so if it fails to decrypt, the data is not leaked. if decryption is successful
     pub symmetric_key_bytes: Option<Secret<[u8; 32]>>, // if provided skip internal key agreement and use this directly for decryption. this is a secret because it is the actual key used for encryption, so if we are returning it from encrypt_data, we want to make sure it is not accidentally leaked by the JS layer if not explicitly requested.
 }
 
@@ -243,7 +243,13 @@ pub fn z_getencryptionaddress(
         .derive_child(ChildIndex::hardened(VERUS_COIN_TYPE))
         .derive_child(ChildIndex::hardened(encryption_index.unwrap_or(0)));
 
-    let extfvk_bytes = channel_sk.to_extended_full_viewing_key();
+    // 
+    let mut extfvk_serialized = [0u8; 169];
+    {
+    let mut w = std::io::Cursor::new(extfvk_serialized.as_mut_slice());
+    channel_sk.to_extended_full_viewing_key().write(&mut w)
+        .map_err(|_| anyhow!("Failed to serialize extfvk"))?;
+    }
 
     let dfvk = channel_sk.to_diversifiable_full_viewing_key();
 
@@ -255,23 +261,23 @@ pub fn z_getencryptionaddress(
     // prepare the final address and fvk in the channelkeys struct to be returned
     let channel_keys = ChannelKeys {
         address: payment_address,
-        extfvk_bytes: extfvk_bytes,
+        extfvk_bytes: Secret::new(extfvk_serialized),
         spending_key_bytes: if return_secret {
             Some(Secret::<[u8; 169]>::new(channel_sk.to_bytes())) 
         } else {
             None
         },
-        ivk_bytes
+        ivk_bytes: Secret::new(ivk_bytes)
     };
 
     Ok(channel_keys)
 }
 
 
-// encrypts a message for a given zcash address
+// encrypts a buffer of data for a given zcash address
 pub fn encrypt_data(
     encrypt_address: PaymentAddress,
-    encrypt_data: Vec<u8>,
+    data_to_encrypt: SecretVec<u8>, // secret cloned once
     return_ssk: bool,
 ) -> Result<EncryptedPayload> {
     // decode the address string into a structured address object
@@ -289,23 +295,26 @@ pub fn encrypt_data(
     let (key_bytes, epk_bytes) =
         internal_generate_symmetric_key_sender(&addr, &rseed_bytes)?;
 
+    // The only time data_to_encrypt is assigned to a buffer to do the encryption
+
+    let mut buffer = data_to_encrypt.expose_secret().clone();
+
     // initialize the chacha20poly1305 cipher with the 32-byte key
-    let cipher = ChaCha20Poly1305::new_from_slice(key_bytes.expose_secret())
+    let encrypt = ChaCha20Poly1305::new_from_slice(key_bytes.expose_secret())
       .map_err(|e| anyhow!("Failed to create cipher: {}", e))?;
     let nonce = chacha20poly1305::Nonce::default();
-    let mut buffer = encrypt_data;
 
-    // encrypt the message in place using the cipher and nonce
-    cipher
+    // encrypt the buffer in place using the cipher and nonce
+    encrypt
      .encrypt_in_place(&nonce, b"", &mut buffer)
      .map_err(|_| anyhow!("Encryption failed"))?;
-
-    // prepare the encrypted payload to be returned
+    
+    // prepare the decrypted payload to be returned
     let result = EncryptedPayload {
         ephemeral_public_key: epk_bytes.0,
-        decrypted_data: buffer,
+        encrypted_data: buffer,
         symmetric_key: if return_ssk {
-            // IMPORTANT: Return the 32-byte key that was actually used for encryption
+            // Return the 32-byte key that was actually used for encryption if requested
             Some(key_bytes)
         } else {
             None
@@ -315,8 +324,8 @@ pub fn encrypt_data(
     Ok(result)
 }
 
-// decrypts a message using either a direct symmetric key, or by deriving
-// the key from a full viewing key and the senders ephemeral public key
+// decrypts a buffer using either a direct symmetric key, or by deriving
+// the incoming viewing key and the senders ephemeral public key
 pub fn decrypt_data(params: DecryptParams) -> Result<Vec<u8>> {
     
     let key_bytes: Secret<[u8; 32]> = if let Some (ssk_bytes) = params.symmetric_key_bytes.as_ref() 
@@ -332,19 +341,20 @@ pub fn decrypt_data(params: DecryptParams) -> Result<Vec<u8>> {
         return Err(anyhow!("Must provide either a symmetric key or both ivk and epk bytes"));
     };
     
-    // decode the data into a mutable byte buffer for in-place decryption
-    let mut buffer = params.data_to_encrypt;
+    // decode the data into a mutable byte buffer for decryption zeroize the bytes after 
+    let mut buffer = params.data_to_decrypt.expose_secret().clone();
 
     // initialize the chacha20poly1305 cipher with the 32-byte key
-    let cipher = ChaCha20Poly1305::new_from_slice(&key_bytes.expose_secret().as_slice())
+    let decrypt = ChaCha20Poly1305::new_from_slice(&key_bytes.expose_secret().as_slice())
      .map_err(|e| anyhow!("Failed to create cipher: {}", e))?;
     let nonce = chacha20poly1305::Nonce::default();
 
      // decrypt the buffer in place. this will fail if the key is incorrect.
-    cipher
+    decrypt
    .decrypt_in_place(&nonce, b"", &mut buffer)
    .map_err(|_| anyhow!("Decryption failed. Key or ciphertext may be incorrect."))?;
 
+    // if decryption is successful, return the decrypted data as a vector of bytes
    Ok(buffer)
 }
 
