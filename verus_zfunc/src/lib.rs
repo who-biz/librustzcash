@@ -233,8 +233,7 @@ pub fn z_getencryptionaddress(
             seed_hash.update(to_id_bytes);
         } 
  
-        let seed_hash: [u8;32] = seed_hash.finalize().into();
-        seed_hash
+        seed_hash.finalize().into()
     });
 
     //TODO: (Biz) can we pack this into secret immediately?
