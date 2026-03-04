@@ -222,9 +222,7 @@ pub fn z_getencryptionaddress(
         seed_hash.finalize().into()
     });
 
-    //TODO: (Biz) can we pack this into secret immediately?
     let (payment_address, channel_sk, extfvk_bytes, ivk_bytes) = {
-
         let channel_secret_key = ExtendedSpendingKey::master(encryption_channel_seed.expose_secret())
             .derive_child(ChildIndex::hardened(32))
             .derive_child(ChildIndex::hardened(VERUS_COIN_TYPE))
@@ -237,7 +235,6 @@ pub fn z_getencryptionaddress(
                 .to_extended_full_viewing_key()
                 .write(&mut w)
                 .map_err(|_| anyhow!("Failed to serialize extfvk"))?;
-
             // check we have a complete write
             let written = w.position() as usize;
             if written != tmp.len() {
@@ -247,7 +244,7 @@ pub fn z_getencryptionaddress(
                      tmp.len()
                 ));
             }
-
+           // TODO: maybe find a way to zeroize this intermediate (not urgent)
            tmp
         });
 
@@ -267,7 +264,6 @@ pub fn z_getencryptionaddress(
         (address, spending_key_bytes, extfvk_serialized, derived_ivk_bytes)
     };
     
-    // prepare the final address and fvk in the channelkeys struct to be returned
     let channel_keys = ChannelKeys {
         address: payment_address,
         extfvk_bytes: extfvk_bytes,
@@ -281,12 +277,12 @@ pub fn z_getencryptionaddress(
 
 // encrypts a buffer of data for a given zcash address
 pub fn encrypt_data(
-    encrypt_address: PaymentAddress,
-    data_to_encrypt: SecretVec<u8>, // secret cloned once
+    encrypt_address: &PaymentAddress,
+    data_to_encrypt: &SecretVec<u8>, // secret cloned once
     return_ssk: bool,
 ) -> Result<EncryptedPayload> {
     // decode the address string into a structured address object
-    let addr = Address::Sapling(encrypt_address);
+    let addr = Address::Sapling(*encrypt_address);
 
     // call the internal helper to perform the key exchange
     // this returns the shared symmetric key and the public ephemeral key
@@ -294,8 +290,6 @@ pub fn encrypt_data(
         internal_generate_symmetric_key_sender(&addr)?;
 
     let encrypted_data: Vec<u8> = {
-        let mut buffer = data_to_encrypt.expose_secret().clone();
-
         // initialize the chacha20poly1305 cipher with the 32-byte key
         let encrypt = ChaCha20Poly1305::new_from_slice(key_bytes.expose_secret())
             .map_err(|e| anyhow!("Failed to create cipher: {}", e))?;
@@ -303,10 +297,8 @@ pub fn encrypt_data(
 
         // encrypt the buffer in place using the cipher and nonce
         encrypt
-            .encrypt_in_place(&nonce, b"", &mut buffer)
-            .map_err(|_| anyhow!("Encryption failed"))?;
-
-        buffer
+            .encrypt(&nonce, data_to_encrypt.expose_secret().as_slice())
+            .map_err(|_| anyhow!("Encryption failed"))?
     };
 
     // prepare the decrypted payload to be returned
