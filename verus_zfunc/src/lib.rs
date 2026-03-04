@@ -28,18 +28,17 @@ impl RngCore for DummyRng {
 }
 impl CryptoRng for DummyRng {}
 
-// (Biz) seems this one is indeed the right way to go. we need to own the data to pass back up
 pub struct ChannelKeys {
     pub address: PaymentAddress,
-    pub extfvk_bytes: Secret<[u8; 169]>, // ExtendedFullViewingKey does not implement Zerioize, back to 169 bytes
+    pub extfvk_bytes: Secret<[u8; 169]>,
     pub spending_key_bytes: Option<Secret<[u8; 169]>>,
     pub ivk_bytes: Secret<[u8; 32]>, 
 }
 
 pub struct EncryptedPayload {
-    pub ephemeral_public_key: [u8; 32], // fixed size arrays as daemon returns
-    pub encrypted_data: Vec<u8>,         // variable length so i think suitable data type as JS layer DataDescriptor uses buffer types, VDXFOrdinals internally uses buffers only serailizes to hex when outputting to JSON
-    pub symmetric_key: Option<Secret<[u8; 32]>>, // only return the symmetric key if explicitly requested, this can be removed
+    pub ephemeral_public_key: [u8; 32],
+    pub encrypted_data: Vec<u8>,
+    pub symmetric_key: Option<Secret<[u8; 32]>>,
 }
 
 // derives a shared symmetric key using the receiver's private viewing key
@@ -106,7 +105,6 @@ fn internal_generate_symmetric_key_sender(
     let note = Note::from_parts(recipient.clone(), NoteValue::from_raw(0), rseed);
 
     // create a dummy rng to satisfy the function signature. this is not used for randomness.
-
     // (Biz) this is fine ONLY when we construct Rseed::AfterZip212 as above (!!)
     let mut dummy_rng = DummyRng;
 
@@ -277,7 +275,7 @@ pub fn z_getencryptionaddress(
 // encrypts a buffer of data for a given zcash address
 pub fn encrypt_data(
     encrypt_address: &PaymentAddress,
-    data_to_encrypt: &SecretVec<u8>, // secret cloned once
+    data_to_encrypt: &SecretVec<u8>,
     return_ssk: bool,
 ) -> Result<EncryptedPayload> {
     // decode the address string into a structured address object
@@ -294,7 +292,8 @@ pub fn encrypt_data(
             .map_err(|e| anyhow!("Failed to create cipher: {}", e))?;
         let nonce = chacha20poly1305::Nonce::default();
 
-        // encrypt the buffer in place using the cipher and nonce
+        // encrypt the buffer, allowing ChaCha20Poly1305 to allocate, using the cipher and nonce
+        // doing this NOT in-place, results in only allocating for the bytes we have actually encrypted
         encrypt
             .encrypt(&nonce, data_to_encrypt.expose_secret().as_slice())
             .map_err(|_| anyhow!("Encryption failed"))?
@@ -343,13 +342,14 @@ pub fn decrypt_data(
             .map_err(|e| anyhow!("Failed to create cipher: {}", e))?;
         let nonce = chacha20poly1305::Nonce::default();
 
-        // decrypt the buffer. we don't do so in-place, to avoid cloning. this will fail if the key is incorrect.
+        // decrypt the data. we don't do so in-place, to avoid cloning. this will fail if the key is incorrect.
+        // this way we don't make copies, and only allocate for bytes we have actually decrypted
         decrypt
             .decrypt(&nonce, data_to_decrypt.expose_secret().as_slice())
             .map_err(|_| anyhow!("Decryption failed. Key or ciphertext may be incorrect."))?
    });
 
-    // if decryption is successful, return the decrypted data as a vector of bytes
+    // if decryption is successful, return the decrypted data as a vector of bytes, packed into secret
    Ok(decrypted_data)
 }
 
