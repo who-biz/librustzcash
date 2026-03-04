@@ -232,6 +232,10 @@ pub fn z_getencryptionaddress(
                 .to_extended_full_viewing_key()
                 .write(&mut w)
                 .map_err(|_| anyhow!("Failed to serialize extfvk"))?;
+            // check correct size
+            if w.position() != 169 {
+                return Err(anyhow!("Serializing extfvk produced incorrect length not equal to 169 bytes!"));
+            }
             // check we have a complete write
             let written = w.position() as usize;
             if written != tmp.len() {
