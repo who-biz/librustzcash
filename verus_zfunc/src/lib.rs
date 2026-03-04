@@ -1,5 +1,5 @@
 use anyhow::{ Result, anyhow};
-use chacha20poly1305::{AeadInPlace, ChaCha20Poly1305, KeyInit};
+use chacha20poly1305::{AeadInPlace, ChaCha20Poly1305, aead::Aead, KeyInit};
 use hex;
 use rand_core::{CryptoRng, RngCore};
 use sha2::{Digest, Sha256};
@@ -42,14 +42,6 @@ pub struct EncryptedPayload {
     pub encrypted_data: Vec<u8>,         // variable length so i think suitable data type as JS layer DataDescriptor uses buffer types, VDXFOrdinals internally uses buffers only serailizes to hex when outputting to JSON
     pub symmetric_key: Option<Secret<[u8; 32]>>, // only return the symmetric key if explicitly requested, this can be removed
 }
-
-pub struct DecryptParams {
-    pub ivk_bytes: Option<Secret<[u8; 32]>>, // use ivk directly instead of extfvk as a secret to zeroize after
-    pub epk_bytes: Option<[u8; 32]>, // using epk directly not a secret
-    pub data_to_decrypt: SecretVec<u8>, // Should be a Secret to Zeroize after decryption. so if it fails to decrypt, the data is not leaked. if decryption is successful
-    pub symmetric_key_bytes: Option<Secret<[u8; 32]>>, // if provided skip internal key agreement and use this directly for decryption. this is a secret because it is the actual key used for encryption, so if we are returning it from encrypt_data, we want to make sure it is not accidentally leaked by the JS layer if not explicitly requested.
-}
-
 
 // derives a shared symmetric key using the receiver's private viewing key
 // and the sender's public key
@@ -100,7 +92,9 @@ fn internal_generate_symmetric_key_sender(
     };
 
     // generate fresh random bytes for the note's rseed
+
     //TODO: (Biz) I don't think we need any good rseed bytes here, AfterZip212 will generate (?)
+    // leaving here for now, can't hurt
     let rseed_bytes = Secret::<[u8; 32]>::new({
         let mut tmp = [0u8; 32];
         getrandom::getrandom(&mut tmp)?;
@@ -136,8 +130,9 @@ fn internal_generate_symmetric_key_sender(
 }
 
 
-// generates a standard BIP-44 derived spending key from a seed.
-pub fn generate_spending_key(seed_hex: String, hd_index: u32) -> Result<String> {
+// (Biz) the function below needs secured if anyone intends to use it.  It is not, as written
+
+/*pub fn generate_spending_key(seed_hex: String, hd_index: u32) -> Result<String> {
     let seed_bytes = hex::decode(seed_hex)?;
     if seed_bytes.len() < 32 {
         return Err(anyhow!("Seed must be at least 32 bytes"));
@@ -157,6 +152,7 @@ pub fn generate_spending_key(seed_hex: String, hd_index: u32) -> Result<String> 
     // return the hex-encoded spending key
     Ok(hex::encode(sk_bytes))
 }
+*/
 
 // generates a unique, deterministic encryption address for a communication channel
 // between two parties, identified by from_id` and `to_id
@@ -330,14 +326,18 @@ pub fn encrypt_data(
 
 // decrypts a buffer using either a direct symmetric key, or by deriving
 // the incoming viewing key and the senders ephemeral public key
-pub fn decrypt_data(params: DecryptParams) -> Result<SecretVec<u8>> {
-    
-    let key_bytes: Secret<[u8; 32]> = if let Some (ssk_bytes) = params.symmetric_key_bytes.as_ref() 
+pub fn decrypt_data(
+    ivk_bytes: Option<&Secret<[u8;32]>>,
+    epk_bytes: Option<&[u8; 32]>,
+    data_to_decrypt: &SecretVec<u8>,
+    symmetric_key_bytes: Option<&Secret<[u8; 32]>>
+) -> Result<SecretVec<u8>> {    
+    let key_bytes: Secret<[u8; 32]> = if let Some (ssk_bytes) = symmetric_key_bytes.as_ref() 
     {
         Secret::new(*ssk_bytes.expose_secret())
     } else if let (Some(ivk_bytes), Some(epk_bytes)) = (
-        params.ivk_bytes.as_ref(),
-        params.epk_bytes.as_ref()
+        ivk_bytes.as_ref(),
+        epk_bytes.as_ref()
     ){
         // reference and generate a symmetric key
         internal_get_symmetric_key_receiver(ivk_bytes, epk_bytes)?
@@ -346,19 +346,16 @@ pub fn decrypt_data(params: DecryptParams) -> Result<SecretVec<u8>> {
         return Err(anyhow!("Must provide either a symmetric key or both ivk and epk bytes"));
     };
     
-    // initialize the chacha20poly1305 cipher with the 32-byte key
     let decrypted_data = SecretVec::new({
-        let mut buffer = params.data_to_decrypt.expose_secret().clone();
+        // initialize the chacha20poly1305 cipher with the 32-byte key
         let decrypt = ChaCha20Poly1305::new_from_slice(&key_bytes.expose_secret().as_slice())
             .map_err(|e| anyhow!("Failed to create cipher: {}", e))?;
         let nonce = chacha20poly1305::Nonce::default();
 
-        // decrypt the buffer in place. this will fail if the key is incorrect.
+        // decrypt the buffer. we don't do so in-place, to avoid cloning. this will fail if the key is incorrect.
         decrypt
-        .decrypt_in_place(&nonce, b"", &mut buffer)
-        .map_err(|_| anyhow!("Decryption failed. Key or ciphertext may be incorrect."))?;
-
-        buffer
+            .decrypt(&nonce, data_to_decrypt.expose_secret().as_slice())
+            .map_err(|_| anyhow!("Decryption failed. Key or ciphertext may be incorrect."))?
    });
 
     // if decryption is successful, return the decrypted data as a vector of bytes
