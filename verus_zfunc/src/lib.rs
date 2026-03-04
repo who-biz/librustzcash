@@ -157,7 +157,7 @@ pub fn z_getencryptionaddress(
     seed: Option<&SecretVec<u8>>,  //TODO: create enum that combines seed & spending key in this layer into SeedMaterial variants
     spending_key: Option<&Secret<[u8; 169]>>,
     hd_index: Option<u32>,  //TODO: then combine hd_index with seed, to eliminate hd_index logic when extsk present
-    encryption_index: Option<u32>, // should be optional, 
+    encryption_index: u32, 
     from_id: Option<&[u8; 20]>,
     to_id: Option<&[u8; 20]>,
     return_secret: bool,
@@ -223,7 +223,7 @@ pub fn z_getencryptionaddress(
         let channel_secret_key = ExtendedSpendingKey::master(encryption_channel_seed.expose_secret())
             .derive_child(ChildIndex::hardened(32))
             .derive_child(ChildIndex::hardened(VERUS_COIN_TYPE))
-            .derive_child(ChildIndex::hardened(encryption_index.unwrap_or(0)));
+            .derive_child(ChildIndex::hardened(encryption_index));
 
         let extfvk_serialized: Secret<[u8; 169]> = Secret::new({
             let mut tmp = [0u8; 169];
