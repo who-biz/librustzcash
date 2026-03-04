@@ -218,7 +218,7 @@ pub fn z_getencryptionaddress(
     );
 
     // we compute a sha256 hash, and immediately pack this variable into a new secret array
-    let encryption_channel_seed = {
+    let encryption_channel_seed: Secret<[u8; 32]> = Secret::new({
         let mut seed_hash = Sha256::new();
         //only expose base_sk Secret inside this scope
         seed_hash.update(base_sk.expose_secret());
@@ -234,21 +234,24 @@ pub fn z_getencryptionaddress(
         } 
  
         let seed_hash: [u8;32] = seed_hash.finalize().into();
-        Secret::new(seed_hash)
-    };
+        seed_hash
+    });
 
+    //TODO: (Biz) can we pack this into secret immediately?
     let channel_sk = ExtendedSpendingKey::master(encryption_channel_seed.expose_secret())
         .derive_child(ChildIndex::hardened(32))
         .derive_child(ChildIndex::hardened(VERUS_COIN_TYPE))
         .derive_child(ChildIndex::hardened(encryption_index.unwrap_or(0)));
 
-    // 
-    let mut extfvk_serialized = [0u8; 169];
+    let extfvk_serialized: Secret<[u8; 169]> = Secret::new(
     {
-    let mut w = std::io::Cursor::new(extfvk_serialized.as_mut_slice());
-    channel_sk.to_extended_full_viewing_key().write(&mut w)
-        .map_err(|_| anyhow!("Failed to serialize extfvk"))?;
-    }
+        let mut bytes = [0u8; 169];
+        //TODO: (Biz) do we need a 169 length check here for incomplete writes, etc?
+        let mut w = std::io::Cursor::new(bytes.as_mut_slice());
+        channel_sk.to_extended_full_viewing_key().write(&mut w)
+            .map_err(|_| anyhow!("Failed to serialize extfvk"))?;
+        bytes
+    });
 
     let dfvk = channel_sk.to_diversifiable_full_viewing_key();
 
@@ -260,7 +263,7 @@ pub fn z_getencryptionaddress(
     // prepare the final address and fvk in the channelkeys struct to be returned
     let channel_keys = ChannelKeys {
         address: payment_address,
-        extfvk_bytes: Secret::new(extfvk_serialized),
+        extfvk_bytes: extfvk_serialized,
         spending_key_bytes: if return_secret {
             Some(Secret::<[u8; 169]>::new(channel_sk.to_bytes())) 
         } else {
