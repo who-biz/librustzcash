@@ -94,9 +94,10 @@ fn internal_get_symmetric_key_receiver(
  
     let hash = <SaplingDomain as Domain>::kdf(shared_secret, &epk_bytes);
 
-    let mut key: [u8;32] = hash.as_bytes()[..32].try_into().map_err(|_| anyhow!("Failed to derive symmetric key: hash output is too short"))?;
-    Ok(Secret::new(key))
-
+    let key: Secret<[u8;32]> = Secret::new({
+        hash.as_bytes()[..32].try_into().map_err(|_| anyhow!("Failed to derive symmetric key: hash output is too short"))?
+    });
+    Ok(key)
 }
 
 
