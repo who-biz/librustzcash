@@ -6,9 +6,11 @@ use sha2::{Digest, Sha256};
 use sapling::{
     Note, PaymentAddress, Rseed, SaplingIvk, note_encryption::{PreparedIncomingViewingKey, SaplingDomain}, value::NoteValue, zip32::ExtendedSpendingKey
 };
-use zcash_keys::address::Address;
+use zcash_keys::address::{ Address };
+use zcash_keys::encoding::AddressCodec;
 use zcash_note_encryption::{Domain, EphemeralKeyBytes};
 use zcash_primitives::{
+    consensus::Network,
     zip32::{ChildIndex, Scope},
 };
 use secrecy::{ExposeSecret, SecretVec, Secret};
@@ -29,7 +31,7 @@ impl RngCore for DummyRng {
 impl CryptoRng for DummyRng {}
 
 pub struct ChannelKeys {
-    pub address: PaymentAddress,
+    pub address: String,
     pub extfvk_bytes: Secret<[u8; 169]>,
     pub spending_key_bytes: Option<Secret<[u8; 169]>>,
     pub ivk_bytes: Secret<[u8; 32]>, 
@@ -157,7 +159,7 @@ pub fn z_getencryptionaddress(
     seed: Option<&SecretVec<u8>>,  //TODO: create enum that combines seed & spending key in this layer into SeedMaterial variants
     spending_key: Option<&Secret<[u8; 169]>>,
     hd_index: Option<u32>,  //TODO: then combine hd_index with seed, to eliminate hd_index logic when extsk present
-    encryption_index: u32, 
+    encryption_index: u32,
     from_id: Option<&[u8; 20]>,
     to_id: Option<&[u8; 20]>,
     return_secret: bool,
@@ -262,7 +264,7 @@ pub fn z_getencryptionaddress(
             None
         };
 
-        (address, spending_key_bytes, extfvk_serialized, derived_ivk_bytes)
+        (address.encode(&Network::MainNetwork), spending_key_bytes, extfvk_serialized, derived_ivk_bytes)
     };
     
     let channel_keys = ChannelKeys {
