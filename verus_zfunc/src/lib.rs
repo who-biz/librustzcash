@@ -227,38 +227,56 @@ pub fn z_getencryptionaddress(
     });
 
     //TODO: (Biz) can we pack this into secret immediately?
-    let channel_sk = ExtendedSpendingKey::master(encryption_channel_seed.expose_secret())
-        .derive_child(ChildIndex::hardened(32))
-        .derive_child(ChildIndex::hardened(VERUS_COIN_TYPE))
-        .derive_child(ChildIndex::hardened(encryption_index.unwrap_or(0)));
+    let (payment_address, channel_sk, extfvk_bytes, ivk_bytes) = {
 
-    let extfvk_serialized: Secret<[u8; 169]> = Secret::new(
-    {
-        let mut bytes = [0u8; 169];
-        //TODO: (Biz) do we need a 169 length check here for incomplete writes, etc?
-        let mut w = std::io::Cursor::new(bytes.as_mut_slice());
-        channel_sk.to_extended_full_viewing_key().write(&mut w)
-            .map_err(|_| anyhow!("Failed to serialize extfvk"))?;
-        bytes
-    });
+        let channel_secret_key = ExtendedSpendingKey::master(encryption_channel_seed.expose_secret())
+            .derive_child(ChildIndex::hardened(32))
+            .derive_child(ChildIndex::hardened(VERUS_COIN_TYPE))
+            .derive_child(ChildIndex::hardened(encryption_index.unwrap_or(0)));
 
-    let dfvk = channel_sk.to_diversifiable_full_viewing_key();
+        let extfvk_serialized: Secret<[u8; 169]> = Secret::new({
+            let mut tmp = [0u8; 169];
+            let mut w = std::io::Cursor::new(tmp.as_mut_slice());
+            channel_secret_key
+                .to_extended_full_viewing_key()
+                .write(&mut w)
+                .map_err(|_| anyhow!("Failed to serialize extfvk"))?;
 
-    let (_/*diversifier*/, payment_address) = dfvk.default_address();
+            // check we have a complete write
+            let written = w.position() as usize;
+            if written != tmp.len() {
+                return Err(anyhow!(
+                    "Unexpected extfvk length: wrote {} bytes, expected {}",
+                     written,
+                     tmp.len()
+                ));
+            }
 
-    // get the ivk_bytes directly from the dfvk
-    let derived_ivk_bytes = Secret::<[u8; 32]>::new(dfvk.to_ivk(Scope::External).0.to_bytes());
+           tmp
+        });
+
+        let dfvk = channel_secret_key.to_diversifiable_full_viewing_key();
+
+        let (_/*diversifier*/, address) = dfvk.default_address();
+
+        // get the ivk_bytes directly from the dfvk
+        let derived_ivk_bytes = Secret::<[u8; 32]>::new(dfvk.to_ivk(Scope::External).0.to_bytes());
+
+        let spending_key_bytes = if return_secret {
+            Some(Secret::new(channel_secret_key.to_bytes()))
+        } else {
+            None
+        };
+
+        (address, spending_key_bytes, extfvk_serialized, derived_ivk_bytes)
+    };
     
     // prepare the final address and fvk in the channelkeys struct to be returned
     let channel_keys = ChannelKeys {
         address: payment_address,
-        extfvk_bytes: extfvk_serialized,
-        spending_key_bytes: if return_secret {
-            Some(Secret::<[u8; 169]>::new(channel_sk.to_bytes())) 
-        } else {
-            None
-        },
-        ivk_bytes: derived_ivk_bytes
+        extfvk_bytes: extfvk_bytes,
+        spending_key_bytes: channel_sk,
+        ivk_bytes: ivk_bytes
     };
 
     Ok(channel_keys)
