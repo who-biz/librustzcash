@@ -1,6 +1,5 @@
 use anyhow::{ Result, anyhow};
-use chacha20poly1305::{AeadInPlace, ChaCha20Poly1305, aead::Aead, KeyInit};
-use hex;
+use chacha20poly1305::{ChaCha20Poly1305, aead::Aead, KeyInit};
 use rand_core::{CryptoRng, RngCore};
 use sha2::{Digest, Sha256};
 
