@@ -258,7 +258,7 @@ pub fn z_getencryptionaddress(
     let (_/*diversifier*/, payment_address) = dfvk.default_address();
 
     // get the ivk_bytes directly from the dfvk
-    let derived_ivk_bytes = dfvk.to_ivk(Scope::External).0.to_bytes();
+    let derived_ivk_bytes = Secret::<[u8; 32]>::new(dfvk.to_ivk(Scope::External).0.to_bytes());
     
     // prepare the final address and fvk in the channelkeys struct to be returned
     let channel_keys = ChannelKeys {
@@ -269,7 +269,7 @@ pub fn z_getencryptionaddress(
         } else {
             None
         },
-        ivk_bytes: Secret::new(derived_ivk_bytes)
+        ivk_bytes: derived_ivk_bytes
     };
 
     Ok(channel_keys)
