@@ -5,29 +5,15 @@ use rand_core::{CryptoRng, RngCore};
 use sha2::{Digest, Sha256};
 
 use sapling::{
-    Note, PaymentAddress, Rseed, SaplingIvk, note_encryption::{PreparedIncomingViewingKey, SaplingDomain}, value::NoteValue, zip32::{DiversifiableFullViewingKey, ExtendedFullViewingKey, ExtendedSpendingKey}
+    Note, PaymentAddress, Rseed, SaplingIvk, note_encryption::{PreparedIncomingViewingKey, SaplingDomain}, value::NoteValue, zip32::ExtendedSpendingKey
 };
 use zcash_keys::address::Address;
 use zcash_note_encryption::{Domain, EphemeralKeyBytes};
 use zcash_primitives::{
-    consensus::Network,
     zip32::{ChildIndex, Scope},
 };
 use secrecy::{ExposeSecret, SecretVec, Secret};
 use jubjub::Fr;
-// WE do not need this anymore
-
-// fn internal_serialize_extended_fvk(extfvk: &ExtendedFullViewingKey) -> Result<ExtendedFullViewingKey> {
-//     let mut out = [0u8; 169];
-//     {
-//         let mut w = Cursor::new(out.as_mut_slice());
-//         extfvk.write(&mut w)?;
-//         if w.position() != 169 {
-//             return Err(anyhow!("Serializing extfvk produced incorrect length not equal to 169 bytes!"));
-//         }
-//     }
-//     Ok(out)
-// }
 
 const VERUS_COIN_TYPE: u32 = 133;
 
@@ -106,7 +92,6 @@ fn internal_get_symmetric_key_receiver(
 
 fn internal_generate_symmetric_key_sender(
     address: &Address,
-    rseed_bytes: &Secret<[u8; 32]>,
 ) -> Result<(Secret<[u8; 32]>, EphemeralKeyBytes)> {
 
     let recipient = match address {
@@ -114,7 +99,14 @@ fn internal_generate_symmetric_key_sender(
         _ => return Err(anyhow!("Incompatible Address used")),
     };
 
-    //TODO: copy, not zeroized without modifications - do we want to do this?
+    // generate fresh random bytes for the note's rseed
+    //TODO: (Biz) I don't think we need any good rseed bytes here, AfterZip212 will generate (?)
+    let rseed_bytes = Secret::<[u8; 32]>::new({
+        let mut tmp = [0u8; 32];
+        getrandom::getrandom(&mut tmp)?;
+        tmp
+    });
+
     let rseed = Rseed::AfterZip212(*rseed_bytes.expose_secret());
 
     // necessary functions only available through Note struct
@@ -282,36 +274,31 @@ pub fn encrypt_data(
     // decode the address string into a structured address object
     let addr = Address::Sapling(encrypt_address);
 
-    // generate fresh random bytes for the note's rseed
-    let rseed_bytes = Secret::<[u8; 32]>::new({
-        let mut tmp = [0u8; 32];
-        getrandom::getrandom(&mut tmp)?;
-        tmp
-    });
-
     // call the internal helper to perform the key exchange
     // this returns the shared symmetric key and the public ephemeral key
     let (key_bytes, epk_bytes) =
-        internal_generate_symmetric_key_sender(&addr, &rseed_bytes)?;
+        internal_generate_symmetric_key_sender(&addr)?;
 
-    // The only time data_to_encrypt is assigned to a buffer to do the encryption
+    let encrypted_data: Vec<u8> = {
+        let mut buffer = data_to_encrypt.expose_secret().clone();
 
-    let mut buffer = data_to_encrypt.expose_secret().clone();
+        // initialize the chacha20poly1305 cipher with the 32-byte key
+        let encrypt = ChaCha20Poly1305::new_from_slice(key_bytes.expose_secret())
+            .map_err(|e| anyhow!("Failed to create cipher: {}", e))?;
+        let nonce = chacha20poly1305::Nonce::default();
 
-    // initialize the chacha20poly1305 cipher with the 32-byte key
-    let encrypt = ChaCha20Poly1305::new_from_slice(key_bytes.expose_secret())
-      .map_err(|e| anyhow!("Failed to create cipher: {}", e))?;
-    let nonce = chacha20poly1305::Nonce::default();
+        // encrypt the buffer in place using the cipher and nonce
+        encrypt
+            .encrypt_in_place(&nonce, b"", &mut buffer)
+            .map_err(|_| anyhow!("Encryption failed"))?;
 
-    // encrypt the buffer in place using the cipher and nonce
-    encrypt
-     .encrypt_in_place(&nonce, b"", &mut buffer)
-     .map_err(|_| anyhow!("Encryption failed"))?;
-    
+        buffer
+    };
+
     // prepare the decrypted payload to be returned
     let result = EncryptedPayload {
         ephemeral_public_key: epk_bytes.0,
-        encrypted_data: buffer,
+        encrypted_data: encrypted_data,
         symmetric_key: if return_ssk {
             // Return the 32-byte key that was actually used for encryption if requested
             Some(key_bytes)
