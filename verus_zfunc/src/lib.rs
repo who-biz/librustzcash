@@ -91,13 +91,12 @@ fn internal_get_symmetric_key_receiver(
     // perform key agreement (ecdh) to calculate the shared secret
     let shared_secret = <SaplingDomain as Domain>::ka_agree_dec(&sapling_ivk, &prepared_epk);
     
- 
-    let hash = <SaplingDomain as Domain>::kdf(shared_secret, &epk_bytes);
-
-    let key: Secret<[u8;32]> = Secret::new({
-        hash.as_bytes()[..32].try_into().map_err(|_| anyhow!("Failed to derive symmetric key: hash output is too short"))?
+    let symmetric_key = Secret::<[u8;32]>::new({
+        <SaplingDomain as Domain>::kdf(shared_secret, &epk_bytes)
+        .as_bytes()[..32].try_into()
+        .map_err(|_| anyhow!("Failed to derive symmetric key: hash output is too short"))?
     });
-    Ok(key)
+    Ok(symmetric_key)
 }
 
 
@@ -135,15 +134,13 @@ fn internal_generate_symmetric_key_sender(
     let shared_secret = <SaplingDomain as Domain>::ka_agree_enc(&esk, &recipient.pk_d());
 
     // derives the symmetric key using the shared secret and the ephemeral public key bytes
-    let hash = <SaplingDomain as Domain>::kdf(shared_secret, &epk_bytes);
+    let symmetric_key = Secret::<[u8; 32]>::new(
+        <SaplingDomain as Domain>::kdf(shared_secret, &epk_bytes)
+        .as_bytes()[..32].try_into()
+        .map_err(|_| anyhow!("Failed to derive symmetric key: hash output is too short"))?
+    );
 
-    //extract first 32 bytes
-
-    let mut symmetric_key = [0u8; 32];
-    symmetric_key.copy_from_slice(&hash.as_bytes()[..32]);
-
-
-     Ok((Secret::new(symmetric_key), epk_bytes))
+    Ok((symmetric_key, epk_bytes))
 }
 
 
