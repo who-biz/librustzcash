@@ -325,7 +325,7 @@ pub fn encrypt_data(
 
 // decrypts a buffer using either a direct symmetric key, or by deriving
 // the incoming viewing key and the senders ephemeral public key
-pub fn decrypt_data(params: DecryptParams) -> Result<Vec<u8>> {
+pub fn decrypt_data(params: DecryptParams) -> Result<SecretVec<u8>> {
     
     let key_bytes: Secret<[u8; 32]> = if let Some (ssk_bytes) = params.symmetric_key_bytes.as_ref() 
     {
@@ -341,20 +341,22 @@ pub fn decrypt_data(params: DecryptParams) -> Result<Vec<u8>> {
         return Err(anyhow!("Must provide either a symmetric key or both ivk and epk bytes"));
     };
     
-    // decode the data into a mutable byte buffer for decryption zeroize the bytes after 
-    let mut buffer = params.data_to_decrypt.expose_secret().clone();
-
     // initialize the chacha20poly1305 cipher with the 32-byte key
-    let decrypt = ChaCha20Poly1305::new_from_slice(&key_bytes.expose_secret().as_slice())
-     .map_err(|e| anyhow!("Failed to create cipher: {}", e))?;
-    let nonce = chacha20poly1305::Nonce::default();
+    let decrypted_data = SecretVec::new({
+        let mut buffer = params.data_to_decrypt.expose_secret().clone();
+        let decrypt = ChaCha20Poly1305::new_from_slice(&key_bytes.expose_secret().as_slice())
+            .map_err(|e| anyhow!("Failed to create cipher: {}", e))?;
+        let nonce = chacha20poly1305::Nonce::default();
 
-     // decrypt the buffer in place. this will fail if the key is incorrect.
-    decrypt
-   .decrypt_in_place(&nonce, b"", &mut buffer)
-   .map_err(|_| anyhow!("Decryption failed. Key or ciphertext may be incorrect."))?;
+        // decrypt the buffer in place. this will fail if the key is incorrect.
+        decrypt
+        .decrypt_in_place(&nonce, b"", &mut buffer)
+        .map_err(|_| anyhow!("Decryption failed. Key or ciphertext may be incorrect."))?;
+
+        buffer
+   });
 
     // if decryption is successful, return the decrypted data as a vector of bytes
-   Ok(buffer)
+   Ok(decrypted_data)
 }
 
