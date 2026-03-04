@@ -7,5 +7,6 @@ pub mod vrsc;
 #[derive(Copy, Clone)]
 pub enum ChainNetwork {
     VRSC,
+    VRSCTEST,
     ZEC
 }
