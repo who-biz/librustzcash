@@ -327,35 +327,35 @@ pub fn decrypt_data(
     epk_bytes: Option<&[u8; 32]>,
     data_to_decrypt: &SecretVec<u8>,
     symmetric_key_bytes: Option<&Secret<[u8; 32]>>
-) -> Result<SecretVec<u8>> {    
-    let key_bytes: Secret<[u8; 32]> = if let Some (ssk_bytes) = symmetric_key_bytes.as_ref() 
-    {
-        Secret::new(*ssk_bytes.expose_secret())
-    } else if let (Some(ivk_bytes), Some(epk_bytes)) = (
-        ivk_bytes.as_ref(),
-        epk_bytes.as_ref()
-    ){
-        // reference and generate a symmetric key
-        internal_get_symmetric_key_receiver(ivk_bytes, epk_bytes)?
-    }
-    else{
-        return Err(anyhow!("Must provide either a symmetric key or both ivk and epk bytes"));
-    };
-    
-    let decrypted_data = SecretVec::new({
-        // initialize the chacha20poly1305 cipher with the 32-byte key
-        let decrypt = ChaCha20Poly1305::new_from_slice(&key_bytes.expose_secret().as_slice())
+) -> Result<SecretVec<u8>> {
+    // we split this logic, because we only need to borrow symmetric_key_bytes if present
+    // there is no way not to split a single key_bytes variable into borrowed ref AND owned data
+    if let Some(key) = symmetric_key_bytes {
+        let decrypt = ChaCha20Poly1305::new_from_slice(key.expose_secret().as_slice())
             .map_err(|e| anyhow!("Failed to create cipher: {}", e))?;
         let nonce = chacha20poly1305::Nonce::default();
 
-        // decrypt the data. we don't do so in-place, to avoid cloning. this will fail if the key is incorrect.
-        // this way we don't make copies, and only allocate for bytes we have actually decrypted
-        decrypt
+        let plaintext = decrypt
             .decrypt(&nonce, data_to_decrypt.expose_secret().as_slice())
-            .map_err(|_| anyhow!("Decryption failed. Key or ciphertext may be incorrect."))?
-   });
+            .map_err(|_| anyhow!("Decryption failed. Key or ciphertext may be incorrect."))?;
 
-    // if decryption is successful, return the decrypted data as a vector of bytes, packed into secret
-   Ok(decrypted_data)
+        return Ok(SecretVec::new(plaintext));
+    }
+    // we have an owned derived_key here, since we generate new data, 
+    if let (Some(ivk), Some(epk)) = (ivk_bytes, epk_bytes) {
+        let derived_key = internal_get_symmetric_key_receiver(ivk, epk)?;
+
+        let decrypt = ChaCha20Poly1305::new_from_slice(derived_key.expose_secret().as_slice())
+            .map_err(|e| anyhow!("Failed to create cipher: {}", e))?;
+        let nonce = chacha20poly1305::Nonce::default();
+
+        let plaintext = decrypt
+            .decrypt(&nonce, data_to_decrypt.expose_secret().as_slice())
+            .map_err(|_| anyhow!("Decryption failed. Key or ciphertext may be incorrect."))?;
+
+        return Ok(SecretVec::new(plaintext));
+    }
+    Err(anyhow!(
+        "Must provide either a symmetricKey or both incomingViewingKey and ephemeralPublicKey"
+    ))
 }
-
