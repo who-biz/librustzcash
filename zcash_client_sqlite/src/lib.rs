@@ -546,17 +546,17 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
             //TODO: improve handling and do this centrally through UnifiedSpendingKey::from_seed(). we already have some checks
             // written into there, and ideally we should expose the secretVec in as few places as possible. However Kotlin/Swift FFIs
             // also require exposing them for decoding keys and converting types. create_account() is is called only once per account
-            if (extsk.expose_secret().len() != 0) {
-                if (extsk.expose_secret().len() != 169) {
+            if extsk.expose_secret().len() != 0 {
+                if extsk.expose_secret().len() != 169 {
                     panic!("extsk must have an exact length of 169 bytes!");
                 }
-                if (seed.expose_secret().len() != 0) {
+                if seed.expose_secret().len() != 0 {
                     // this is the only redundant condition that is also checked in usk::from_seed()
                     panic!("Seed and extsk both present. Import them separately!"); 
                 }
             } else {
                 // no extsk present
-                if (seed.expose_secret().len() == 0) {
+                if seed.expose_secret().len() == 0 {
                     panic!("Neither seed, nor extsk present. We need (exclusively) one of them!"); 
                 }
             }

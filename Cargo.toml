@@ -12,6 +12,7 @@ members = [
     "zcash_keys",
     "zcash_primitives",
     "zcash_proofs",
+    "verus_zfunc"
 ]
 
 [workspace.package]
@@ -35,7 +36,7 @@ zcash_encoding = { version = "0.2", path = "components/zcash_encoding" }
 zcash_keys = { version = "0.2", path = "zcash_keys" }
 zcash_protocol = { version = "0.1", path = "components/zcash_protocol" }
 
-zcash_note_encryption = "0.4"
+zcash_note_encryption = "0.4.1"
 zcash_primitives = { version = "0.15", path = "zcash_primitives", default-features = false }
 zcash_proofs = { version = "0.15", path = "zcash_proofs", default-features = false }
 
@@ -127,3 +128,7 @@ lto = true
 panic = 'abort'
 codegen-units = 1
 
+[patch.crates-io]
+sapling-crypto = { git = "https://github.com/VerusCoin/sapling-crypto", branch = "ka_agree" }
+zcash_note_encryption = { git = "https://github.com/VerusCoin/zcash_note_encryption", branch = "ka_agree" }
+orchard = { git = "https://github.com/VerusCoin/orchard", branch = "ka_agree" }

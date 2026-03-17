@@ -1,2 +1,4 @@
 target
 .cargo
+
+verus_zfunc/src/bin/run_test.rs
