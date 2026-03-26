@@ -129,6 +129,6 @@ panic = 'abort'
 codegen-units = 1
 
 [patch.crates-io]
-sapling-crypto = { git = "https://github.com/VerusCoin/sapling-crypto", branch = "ka_agree" }
+sapling-crypto = { git = "https://github.com/who-biz/sapling-crypto", branch = "production-fixes" }
 zcash_note_encryption = { git = "https://github.com/VerusCoin/zcash_note_encryption", branch = "ka_agree" }
 orchard = { git = "https://github.com/VerusCoin/orchard", branch = "ka_agree" }
