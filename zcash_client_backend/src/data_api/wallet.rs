@@ -930,6 +930,7 @@ where
         if proposal_step.is_shielding() {
             return Some(sapling::keys::OutgoingViewingKey(
                // TODO: Patch in HD Seed ovk here (?), mirroring that from verus core
+               
                 usk.transparent()
                     .to_account_pubkey()
                     .internal_ovk()
@@ -937,7 +938,9 @@ where
             ));
         }
 
-        Some(sapling_dfvk.to_ovk(Scope::Internal))
+        //TODO: hotfix for verus release, we will weigh OVK usage wrt internal scope in time
+        //Some(sapling_dfvk.to_ovk(Scope::Internal))
+        Some(sapling_dfvk.to_ovk(Scope::External))
     };
 
     #[cfg(feature = "orchard")]
