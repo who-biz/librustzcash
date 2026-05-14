@@ -938,6 +938,7 @@ where
         }
 
         Some(sapling_dfvk.to_ovk(Scope::Internal))
+        //Some(sapling_dfvk.to_ovk(Scope::External))
     };
 
     #[cfg(feature = "orchard")]
@@ -1049,7 +1050,9 @@ where
             ShieldedProtocol::Sapling => {
                 builder.add_sapling_output(
                     sapling_internal_ovk(),
-                    sapling_dfvk.change_address().1,
+                    //TODO: this is a quick fix for verus, since we do not have internal scopes in the legacy codebase
+                    sapling_dfvk.default_address().1,
+                    //sapling_dfvk.change_address().1,
                     change_value.value(),
                     memo.clone(),
                 )?;
