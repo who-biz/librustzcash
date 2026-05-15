@@ -937,8 +937,10 @@ where
             ));
         }
 
+        //TODO: I don't believe this is relevant or necessary, for change discoverability, for standard z-txfers, so reverted hotfix
+     
         //TODO: hotfix for verus release, we will weigh OVK usage wrt internal scope in time
-        //Some(sapling_dfvk.to_ovk(Scope::Internal))
+        //Some(sapling_dfvk.to_ovk(Scope::External))
         Some(sapling_dfvk.to_ovk(Scope::Internal))
     };
 
@@ -1051,8 +1053,8 @@ where
             ShieldedProtocol::Sapling => {
                 builder.add_sapling_output(
                     //TODO: this is a quick fix for verus, since we do not have internal scopes in the legacy codebase
-                    sapling_external_ovk,
-                    //sapling_internal_ovk(),
+                    //sapling_external_ovk,
+                    sapling_internal_ovk(),
                     //TODO: this is a quick fix for verus, since we do not have internal scopes in the legacy codebase
                     sapling_dfvk.default_address().1,
                     //sapling_dfvk.change_address().1,
@@ -1070,7 +1072,6 @@ where
                     change_value.value(),
                     Some(memo),
                 ))
-                
             }
             ShieldedProtocol::Orchard => {
                 #[cfg(not(feature = "orchard"))]
