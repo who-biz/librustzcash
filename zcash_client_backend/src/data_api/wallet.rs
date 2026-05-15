@@ -1058,7 +1058,7 @@ where
                     memo.clone(),
                 )?;
                 sapling_output_meta.push((
-                    Recipient::InternalAccount {
+                    Recipient::ExternalAccount {
                         receiving_account: account,
                         //TODO: also related to quick fix, error "Wallet-internal outputs must be decryptable with the wallet's ivk"
                         // was being thrown, because the internal ivk has a distinct z-address
