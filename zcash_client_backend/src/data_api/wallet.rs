@@ -939,7 +939,7 @@ where
 
         //TODO: hotfix for verus release, we will weigh OVK usage wrt internal scope in time
         //Some(sapling_dfvk.to_ovk(Scope::Internal))
-        Some(sapling_dfvk.to_ovk(Scope::External))
+        Some(sapling_dfvk.to_ovk(Scope::Internal))
     };
 
     #[cfg(feature = "orchard")]
@@ -1050,7 +1050,9 @@ where
         match change_value.output_pool() {
             ShieldedProtocol::Sapling => {
                 builder.add_sapling_output(
-                    sapling_internal_ovk(),
+                    //TODO: this is a quick fix for verus, since we do not have internal scopes in the legacy codebase
+                    sapling_external_ovk,
+                    //sapling_internal_ovk(),
                     //TODO: this is a quick fix for verus, since we do not have internal scopes in the legacy codebase
                     sapling_dfvk.default_address().1,
                     //sapling_dfvk.change_address().1,
@@ -1058,18 +1060,17 @@ where
                     memo.clone(),
                 )?;
                 sapling_output_meta.push((
-                    Recipient::ExternalAccount {
+                    Recipient::InternalAccount {
                         receiving_account: account,
-                        //TODO: also related to quick fix, error "Wallet-internal outputs must be decryptable with the wallet's ivk"
-                        // was being thrown, because the internal ivk has a distinct z-address
-                        //TODO: reverted, improper fix
-                        //external_address: Some(zcash_keys::address::Address::Sapling(sapling_dfvk.default_address().1)),
-                        external_address: None,
+                        //TODO: testing if this fixes our internal accounting, unsure what this does at each point in stack
+                        external_address: Some(Address::Sapling(sapling_dfvk.default_address().1)),
+                        //external_address: None,
                         note: PoolType::Shielded(ShieldedProtocol::Sapling),
                     },
                     change_value.value(),
                     Some(memo),
                 ))
+                
             }
             ShieldedProtocol::Orchard => {
                 #[cfg(not(feature = "orchard"))]
@@ -1134,8 +1135,9 @@ where
             });
 
     //TODO: quickfix change for verus for discoverability of change outputs in daemon
-    let sapling_internal_ivk =
+    let sapling_external_ivk =
         PreparedIncomingViewingKey::new(&sapling_dfvk.to_ivk(Scope::External));
+//    let sapling_internal_ivk =
 //        PreparedIncomingViewingKey::new(&sapling_dfvk.to_ivk(Scope::Internal));
     let sapling_outputs =
         sapling_output_meta
@@ -1155,7 +1157,7 @@ where
                             .sapling_bundle()
                             .and_then(|bundle| {
                                 try_sapling_note_decryption(
-                                    &sapling_internal_ivk,
+                                    &sapling_external_ivk,
                                     &bundle.shielded_outputs()[output_index],
                                     zip212_enforcement(params, min_target_height),
                                 )
