@@ -937,8 +937,9 @@ where
             ));
         }
 
-        Some(sapling_dfvk.to_ovk(Scope::Internal))
-        //Some(sapling_dfvk.to_ovk(Scope::External))
+        //TODO: hotfix for verus release, we will weigh OVK usage wrt internal scope in time
+        //Some(sapling_dfvk.to_ovk(Scope::Internal))
+        Some(sapling_dfvk.to_ovk(Scope::External))
     };
 
     #[cfg(feature = "orchard")]
@@ -1061,7 +1062,9 @@ where
                         receiving_account: account,
                         //TODO: also related to quick fix, error "Wallet-internal outputs must be decryptable with the wallet's ivk"
                         // was being thrown, because the internal ivk has a distinct z-address
-                        external_address: Some(zcash_keys::address::Address::Sapling(sapling_dfvk.default_address().1)),
+                        //TODO: reverted, improper fix
+                        //external_address: Some(zcash_keys::address::Address::Sapling(sapling_dfvk.default_address().1)),
+                        external_address: None,
                         note: PoolType::Shielded(ShieldedProtocol::Sapling),
                     },
                     change_value.value(),
