@@ -1059,7 +1059,9 @@ where
                 sapling_output_meta.push((
                     Recipient::InternalAccount {
                         receiving_account: account,
-                        external_address: None,
+                        //TODO: also related to quick fix, error "Wallet-internal outputs must be decryptable with the wallet's ivk"
+                        // was being thrown, because the internal ivk has a distinct z-address
+                        external_address: Some(zcash_keys::address::Address::Sapling(sapling_dfvk.default_address().1)),
                         note: PoolType::Shielded(ShieldedProtocol::Sapling),
                     },
                     change_value.value(),
@@ -1128,8 +1130,10 @@ where
                 SentTransactionOutput::from_parts(output_index, recipient, value, memo)
             });
 
+    //TODO: quickfix change for verus for discoverability of change outputs in daemon
     let sapling_internal_ivk =
-        PreparedIncomingViewingKey::new(&sapling_dfvk.to_ivk(Scope::Internal));
+        PreparedIncomingViewingKey::new(&sapling_dfvk.to_ivk(Scope::External));
+//        PreparedIncomingViewingKey::new(&sapling_dfvk.to_ivk(Scope::Internal));
     let sapling_outputs =
         sapling_output_meta
             .into_iter()
