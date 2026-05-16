@@ -713,7 +713,9 @@ where
                                 Note::Sapling(note) => {
                                     let key = match selected.spending_key_scope() {
                                         Scope::External => usk.sapling().clone(),
-                                        Scope::Internal => usk.sapling().derive_internal(),
+                                        //TODO: hotfix for verus compatability, revert when we add internal key scopes
+                                        Scope::Internal => usk.sapling().clone(),
+                                        //Scope::Internal => usk.sapling().derive_internal(),
                                     };
 
                                     sapling_tree
@@ -1053,8 +1055,8 @@ where
             ShieldedProtocol::Sapling => {
                 builder.add_sapling_output(
                     //TODO: this is a quick fix for verus, since we do not have internal scopes in the legacy codebase
-                    //sapling_external_ovk,
-                    sapling_internal_ovk(),
+                    //sapling_internal_ovk(),
+                    sapling_external_ovk,
                     //TODO: this is a quick fix for verus, since we do not have internal scopes in the legacy codebase
                     sapling_dfvk.default_address().1,
                     //sapling_dfvk.change_address().1,
@@ -1064,8 +1066,7 @@ where
                 sapling_output_meta.push((
                     Recipient::InternalAccount {
                         receiving_account: account,
-                        //TODO: testing if this fixes our internal accounting, unsure what this does at each point in stack
-                        external_address: Some(Address::Sapling(sapling_dfvk.default_address().1)),
+                        external_address: None,
                         //external_address: None,
                         note: PoolType::Shielded(ShieldedProtocol::Sapling),
                     },
