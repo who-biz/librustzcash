@@ -1055,8 +1055,8 @@ where
             ShieldedProtocol::Sapling => {
                 builder.add_sapling_output(
                     //TODO: this is a quick fix for verus, since we do not have internal scopes in the legacy codebase
-                    //sapling_internal_ovk(),
-                    sapling_external_ovk,
+                    sapling_internal_ovk(),
+                    //sapling_external_ovk,
                     //TODO: this is a quick fix for verus, since we do not have internal scopes in the legacy codebase
                     sapling_dfvk.default_address().1,
                     //sapling_dfvk.change_address().1,
