@@ -1055,8 +1055,9 @@ where
             ShieldedProtocol::Sapling => {
                 builder.add_sapling_output(
                     //TODO: this is a quick fix for verus, since we do not have internal scopes in the legacy codebase
-                    sapling_internal_ovk(),
-                    //sapling_external_ovk,
+                    //sapling_internal_ovk(),
+                    // changing this to internal_ovk is causing duplicate amounts to display, seems ovk recovery & ivk are both happening for this case
+                    sapling_external_ovk,
                     //TODO: this is a quick fix for verus, since we do not have internal scopes in the legacy codebase
                     sapling_dfvk.default_address().1,
                     //sapling_dfvk.change_address().1,
@@ -1159,6 +1160,7 @@ where
                             .sapling_bundle()
                             .and_then(|bundle| {
                                 try_sapling_note_decryption(
+                                    //TODO: quickfix change for verus
                                     &sapling_external_ivk,
                                     &bundle.shielded_outputs()[output_index],
                                     zip212_enforcement(params, min_target_height),
@@ -1198,6 +1200,7 @@ where
     wallet_db
         .store_sent_tx(&SentTransaction {
             tx: build_result.transaction(),
+            //TODO: check why this is displaying a 0 timestamp in mobile wallet
             created: time::OffsetDateTime::now_utc(),
             account,
             outputs,
