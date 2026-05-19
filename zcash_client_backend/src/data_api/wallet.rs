@@ -696,6 +696,9 @@ where
         .ok_or(Error::KeyNotRecognized)?
         .id();
 
+    //TODO: quickfix for verus change
+    let mut input_address_for_change = None;
+
     let (sapling_anchor, sapling_inputs) =
         if proposal_step.involves(PoolType::Shielded(ShieldedProtocol::Sapling)) {
             proposal_step.shielded_inputs().map_or_else(
@@ -711,6 +714,7 @@ where
                             .iter()
                             .filter_map(|selected| match selected.note() {
                                 Note::Sapling(note) => {
+                                    input_address_for_change = Some(note.recipient());
                                     let key = match selected.spending_key_scope() {
                                         Scope::External => usk.sapling().clone(),
                                         //TODO: hotfix for verus compatability, revert when we add internal key scopes
@@ -846,6 +850,7 @@ where
                 utxo.txout().clone(),
             )?;
         }
+
         for input_ref in proposal_step.prior_step_inputs() {
             match input_ref.output_index() {
                 proposal::StepOutputIndex::Payment(i) => {
@@ -866,6 +871,9 @@ where
                         _ => None,
                     }
                     .ok_or(Error::ProposalNotSupported)?;
+                    //TODO: quickfix for verus change outputs
+                    input_address_for_change = recipient_address;
+
                     let outpoint = OutPoint::new(
                         result.transaction().txid().into(),
                         u32::try_from(
@@ -1064,16 +1072,40 @@ where
                     change_value.value(),
                     memo.clone(),
                 )?;
+              /*
+                sapling_output_meta.push((
+                    Recipient::<_, Note>::Unified(
+                        input_address_for_change.as_ref(),
+                        PoolType::Shielded(ShieldedProtocol::Sapling),
+                    ),
+                    change_value.value(),
+                    Some(memo),
+                ));
+              */
                 sapling_output_meta.push((
                     Recipient::InternalAccount {
                         receiving_account: account,
-                        external_address: None,
-                        //external_address: None,
+                        external_address: Some(
+                            Address::Sapling(
+                                sapling_dfvk.default_address().1
+                            )
+                        ),
                         note: PoolType::Shielded(ShieldedProtocol::Sapling),
                     },
                     change_value.value(),
                     Some(memo),
-                ))
+                ));
+                /*sapling_output_meta.push((
+                    Recipient::InternalAccount {
+                        receiving_account: account,
+                        external_address: None,
+                        note: PoolType::Shielded(ShieldedProtocol::Sapling),
+                    },
+                    //Recipient::Sapling(sapling_dfvk.default_address().1),
+                    change_value.value(),
+                    Some(memo),
+                ))*/
+                
             }
             ShieldedProtocol::Orchard => {
                 #[cfg(not(feature = "orchard"))]
