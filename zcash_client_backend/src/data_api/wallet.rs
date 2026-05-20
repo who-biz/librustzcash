@@ -697,7 +697,7 @@ where
         .id();
 
     //TODO: quickfix for verus change
-    let mut input_address_for_change = None;
+    //let mut input_address_for_change = None;
 
     let (sapling_anchor, sapling_inputs) =
         if proposal_step.involves(PoolType::Shielded(ShieldedProtocol::Sapling)) {
@@ -714,12 +714,12 @@ where
                             .iter()
                             .filter_map(|selected| match selected.note() {
                                 Note::Sapling(note) => {
-                                    input_address_for_change = Some(note.recipient());
+                                    //input_address_for_change = Some(note.recipient());
                                     let key = match selected.spending_key_scope() {
                                         Scope::External => usk.sapling().clone(),
                                         //TODO: hotfix for verus compatability, revert when we add internal key scopes
-                                        Scope::Internal => usk.sapling().clone(),
-                                        //Scope::Internal => usk.sapling().derive_internal(),
+                                        //Scope::Internal => usk.sapling().clone(),
+                                        Scope::Internal => usk.sapling().derive_internal(),
                                     };
 
                                     sapling_tree
@@ -1072,39 +1072,22 @@ where
                     change_value.value(),
                     memo.clone(),
                 )?;
-              /*
-                sapling_output_meta.push((
-                    Recipient::<_, Note>::Unified(
-                        input_address_for_change.as_ref(),
-                        PoolType::Shielded(ShieldedProtocol::Sapling),
-                    ),
+/*                sapling_output_meta.push((
+                    Recipient::Sapling(sapling_dfvk.default_address().1),
                     change_value.value(),
                     Some(memo),
-                ));
-              */
+                ))
+*/
                 sapling_output_meta.push((
                     Recipient::InternalAccount {
                         receiving_account: account,
-                        external_address: Some(
-                            Address::Sapling(
-                                sapling_dfvk.default_address().1
-                            )
-                        ),
-                        note: PoolType::Shielded(ShieldedProtocol::Sapling),
-                    },
-                    change_value.value(),
-                    Some(memo),
-                ));
-                /*sapling_output_meta.push((
-                    Recipient::InternalAccount {
-                        receiving_account: account,
-                        external_address: None,
+                        external_address: Some(Address::Sapling(sapling_dfvk.default_address().1)),
                         note: PoolType::Shielded(ShieldedProtocol::Sapling),
                     },
                     //Recipient::Sapling(sapling_dfvk.default_address().1),
                     change_value.value(),
                     Some(memo),
-                ))*/
+                ))
                 
             }
             ShieldedProtocol::Orchard => {
@@ -1172,8 +1155,6 @@ where
     //TODO: quickfix change for verus for discoverability of change outputs in daemon
     let sapling_external_ivk =
         PreparedIncomingViewingKey::new(&sapling_dfvk.to_ivk(Scope::External));
-//    let sapling_internal_ivk =
-//        PreparedIncomingViewingKey::new(&sapling_dfvk.to_ivk(Scope::Internal));
     let sapling_outputs =
         sapling_output_meta
             .into_iter()
@@ -1192,7 +1173,6 @@ where
                             .sapling_bundle()
                             .and_then(|bundle| {
                                 try_sapling_note_decryption(
-                                    //TODO: quickfix change for verus
                                     &sapling_external_ivk,
                                     &bundle.shielded_outputs()[output_index],
                                     zip212_enforcement(params, min_target_height),
@@ -1205,6 +1185,40 @@ where
 
                 SentTransactionOutput::from_parts(output_index, recipient, value, memo)
             });
+
+/*    let sapling_internal_ivk =
+        PreparedIncomingViewingKey::new(&sapling_dfvk.to_ivk(Scope::Internal));
+    let sapling_outputs =
+        sapling_output_meta
+            .into_iter()
+            .enumerate()
+            .map(|(i, (recipient, value, memo))| {
+                let output_index = build_result
+                    .sapling_meta()
+                    .output_index(i)
+                    .expect("An output should exist in the transaction for each Sapling payment.");
+
+                let recipient = recipient
+                    .map_internal_account_note(|pool| {
+                        assert!(pool == PoolType::Shielded(ShieldedProtocol::Sapling));
+                        build_result
+                            .transaction()
+                            .sapling_bundle()
+                            .and_then(|bundle| {
+                                try_sapling_note_decryption(
+                                    &sapling_internal_ivk,
+                                    &bundle.shielded_outputs()[output_index],
+                                    zip212_enforcement(params, min_target_height),
+                                )
+                                .map(|(note, _, _)| Note::Sapling(note))
+                            })
+                    })
+                    .internal_account_note_transpose_option()
+                    .expect("Wallet-internal outputs must be decryptable with the wallet's IVK");
+
+                SentTransactionOutput::from_parts(output_index, recipient, value, memo)
+            });
+*/
 
     let transparent_outputs = transparent_output_meta.into_iter().map(|(addr, value)| {
         let script = addr.script();

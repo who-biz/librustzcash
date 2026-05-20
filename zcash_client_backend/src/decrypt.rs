@@ -120,41 +120,79 @@ pub fn decrypt_transaction<'a, P: consensus::Parameters, AccountId: Copy>(
                         PreparedIncomingViewingKey::new(&dfvk.to_ivk(Scope::External));
                     let ivk_internal =
                         PreparedIncomingViewingKey::new(&dfvk.to_ivk(Scope::Internal));
-                    let ovk = dfvk.fvk().ovk;
+
+                    let ovk_internal = dfvk.to_ovk(Scope::Internal);
+                    let external_change_ovk = dfvk.to_ovk(Scope::External);
 
                     bundle
                         .shielded_outputs()
                         .iter()
                         .enumerate()
                         .flat_map(move |(index, output)| {
+                            // first, try decrypting with external ivk
                             try_note_decryption(&sapling_domain, &ivk_external, output)
-                                .map(|ret| (ret, TransferType::Incoming))
+                                .map(|ret| {
+//                                    let transfer_type =
+                                       let transfer_type = if try_output_recovery_with_ovk(
+                                            // check external/external first
+                                            // Incoming tells us its sapling change, and external address is added in sqlite
+                                            // for this case, specifically
+                                            &sapling_domain,
+                                            &external_change_ovk,
+                                            output,
+                                            output.cv(),
+                                            output.out_ciphertext(),
+                                        ).is_some() {
+                                        //{
+                                            TransferType::Incoming
+                                        } else {
+                                            TransferType::Incoming
+                                        };
+                                        (ret, transfer_type)
+                                        //TODO: add error case here, we don;t want to blend internal inputs with external outputs
+
+                                 })
                                 .or_else(|| {
-                                    try_note_decryption(&sapling_domain, &ivk_internal, output)
-                                        .map(|ret| (ret, TransferType::WalletInternal))
-                                })
-                                .or_else(|| {
-                                    try_output_recovery_with_ovk(
-                                        &sapling_domain,
-                                        &ovk,
-                                        output,
-                                        output.cv(),
-                                        output.out_ciphertext(),
+                                try_note_decryption(
+                                    &sapling_domain,
+                                    &ivk_internal,
+                                    output,
+                                )
+                                .map(|ret| {
+                                    (
+                                            ret,
+                                        TransferType::WalletInternal,
                                     )
-                                    .map(|ret| (ret, TransferType::Outgoing))
                                 })
-                                .into_iter()
+                            })
+                            .or_else(|| {
+                                try_output_recovery_with_ovk(
+                                    &sapling_domain,
+                                    &ovk_internal,
+                                    output,
+                                    output.cv(),
+                                    output.out_ciphertext(),
+                                )
+                                .map(|ret| {
+                                    (
+                                        ret,
+                                        TransferType::Outgoing,
+                                    )
+                                })
+                            })
+                            .into_iter()
                                 .map(move |((note, _, memo), transfer_type)| {
-                                    DecryptedOutput::new(
-                                        index,
-                                        note,
-                                        account,
-                                        MemoBytes::from_bytes(&memo).expect("correct length"),
-                                        transfer_type,
-                                    )
-                                })
+                                DecryptedOutput::new(
+                                    index,
+                                    note,
+                                    account,
+                                    MemoBytes::from_bytes(&memo)
+                                        .expect("correct length"),
+                                    transfer_type,
+                                )
                         })
                 })
+        })
         })
         .collect();
 
