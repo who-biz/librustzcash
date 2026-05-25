@@ -1171,6 +1171,7 @@ where
             &sapling_dfvk.to_ivk(Scope::External)
         );
 
+
     let sapling_outputs =
         sapling_output_meta
             .into_iter()
@@ -1182,32 +1183,6 @@ where
                     .expect(
                         "An output should exist in the transaction for each Sapling payment."
                     );
-
-                let recipient = match recipient {
-                    Recipient::Sapling(addr) => {
-                        let _note = build_result
-                            .transaction()
-                            .sapling_bundle()
-                            .and_then(|bundle| {
-                                try_sapling_note_decryption(
-                                    &sapling_external_ivk,
-                                    &bundle.shielded_outputs()[output_index],
-                                    zip212_enforcement(
-                                        params,
-                                        min_target_height,
-                                    ),
-                                )
-                            })
-                            .map(|(note, _, _)| note)
-                            .expect(
-                                "External-scope change outputs must decrypt"
-                            );
-
-                        Recipient::Sapling(addr)
-                    }
-
-                    other => other,
-                };
 
                 SentTransactionOutput::from_parts(
                     output_index,
