@@ -1059,6 +1059,168 @@ where
         let memo = change_value
             .memo()
             .map_or_else(MemoBytes::empty, |m| m.clone());
+
+        match change_value.output_pool() {
+            ShieldedProtocol::Sapling => {
+                // Verus compatibility mode:
+                let change_addr = sapling_dfvk.default_address().1;
+
+                builder.add_sapling_output(
+                    sapling_external_ovk,
+                    change_addr,
+                    change_value.value(),
+                    memo.clone(),
+                )?;
+
+                sapling_output_meta.push((
+                    Recipient::Sapling(change_addr),
+                    change_value.value(),
+                    Some(memo),
+                ));
+            }
+
+            ShieldedProtocol::Orchard => {
+                #[cfg(not(feature = "orchard"))]
+                return Err(Error::UnsupportedChangeType(
+                    PoolType::Shielded(ShieldedProtocol::Orchard),
+                ));
+
+                #[cfg(feature = "orchard")]
+                {
+                    builder.add_orchard_output(
+                        orchard_internal_ovk(),
+                        orchard_fvk.address_at(0u32, orchard::keys::Scope::Internal),
+                        change_value.value().into(),
+                        memo.clone(),
+                    )?;
+
+                    orchard_output_meta.push((
+                        Recipient::InternalAccount {
+                            receiving_account: account,
+                            external_address: None,
+                            note: PoolType::Shielded(ShieldedProtocol::Orchard),
+                        },
+                        change_value.value(),
+                        Some(memo),
+                    ))
+                }
+            }
+        }
+    }
+
+    // Build the transaction with the specified fee rule
+    let build_result = builder.build(
+        OsRng,
+        spend_prover,
+        output_prover,
+        fee_rule,
+    )?;
+
+    #[cfg(feature = "orchard")]
+    let orchard_internal_ivk =
+        orchard_fvk.to_ivk(orchard::keys::Scope::Internal);
+
+    #[cfg(feature = "orchard")]
+    let orchard_outputs =
+        orchard_output_meta
+            .into_iter()
+            .enumerate()
+            .map(|(i, (recipient, value, memo))| {
+                let output_index = build_result
+                    .orchard_meta()
+                    .output_action_index(i)
+                    .expect(
+                        "An action should exist in the transaction for each Orchard output."
+                    );
+
+                let recipient = recipient
+                    .map_internal_account_note(|pool| {
+                        assert!(
+                            pool == PoolType::Shielded(ShieldedProtocol::Orchard)
+                        );
+
+                        build_result
+                            .transaction()
+                            .orchard_bundle()
+                            .and_then(|bundle| {
+                                bundle
+                                    .decrypt_output_with_key(
+                                        output_index,
+                                        &orchard_internal_ivk,
+                                    )
+                                    .map(|(note, _, _)| Note::Orchard(note))
+                            })
+                    })
+                    .internal_account_note_transpose_option()
+                    .expect(
+                        "Wallet-internal outputs must be decryptable with the wallet's IVK"
+                    );
+
+                SentTransactionOutput::from_parts(
+                    output_index,
+                    recipient,
+                    value,
+                    memo,
+                )
+            });
+
+    // Verus compatibility mode:
+    // change is intentionally external scoped.
+    let sapling_external_ivk =
+        PreparedIncomingViewingKey::new(
+            &sapling_dfvk.to_ivk(Scope::External)
+        );
+
+    let sapling_outputs =
+        sapling_output_meta
+            .into_iter()
+            .enumerate()
+            .map(|(i, (recipient, value, memo))| {
+                let output_index = build_result
+                    .sapling_meta()
+                    .output_index(i)
+                    .expect(
+                        "An output should exist in the transaction for each Sapling payment."
+                    );
+
+                let recipient = match recipient {
+                    Recipient::Sapling(addr) => {
+                        let _note = build_result
+                            .transaction()
+                            .sapling_bundle()
+                            .and_then(|bundle| {
+                                try_sapling_note_decryption(
+                                    &sapling_external_ivk,
+                                    &bundle.shielded_outputs()[output_index],
+                                    zip212_enforcement(
+                                        params,
+                                        min_target_height,
+                                    ),
+                                )
+                            })
+                            .map(|(note, _, _)| note)
+                            .expect(
+                                "External-scope change outputs must decrypt"
+                            );
+
+                        Recipient::Sapling(addr)
+                    }
+
+                    other => other,
+                };
+
+                SentTransactionOutput::from_parts(
+                    output_index,
+                    recipient,
+                    value,
+                    memo,
+                )
+            });
+
+/*    for change_value in proposal_step.balance().proposed_change() {
+        let memo = change_value
+            .memo()
+            .map_or_else(MemoBytes::empty, |m| m.clone());
         match change_value.output_pool() {
             ShieldedProtocol::Sapling => {
                 builder.add_sapling_output(
@@ -1072,12 +1234,18 @@ where
                     change_value.value(),
                     memo.clone(),
                 )?;
+*/
+
+//start commented
 /*                sapling_output_meta.push((
                     Recipient::Sapling(sapling_dfvk.default_address().1),
                     change_value.value(),
                     Some(memo),
                 ))
 */
+//endcommented
+
+/*
                 sapling_output_meta.push((
                     Recipient::InternalAccount {
                         receiving_account: account,
@@ -1185,12 +1353,14 @@ where
                      })
                     .internal_account_note_transpose_option()
                     .expect("Wallet-internal outputs must be decryptable with the wallet's IVK");
-   //              decrypt_and_store_transaction(transaction)?;    
+                 //decrypt_and_store_transaction(transaction)?;    
 
                 SentTransactionOutput::from_parts(output_index, recipient, value, memo)
             });
 
+*/
 
+//start commented
 /*    let sapling_internal_ivk =
         PreparedIncomingViewingKey::new(&sapling_dfvk.to_ivk(Scope::Internal));
     let sapling_outputs =
@@ -1224,6 +1394,7 @@ where
                 SentTransactionOutput::from_parts(output_index, recipient, value, memo)
             });
 */
+//endcommented
 
     let transparent_outputs = transparent_output_meta.into_iter().map(|(addr, value)| {
         let script = addr.script();
