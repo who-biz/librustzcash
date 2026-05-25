@@ -1369,11 +1369,11 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
                 match output.recipient() {
                     Recipient::InternalAccount {
                         receiving_account,
-                        external_address,
+                       // external_address,
                         note: Note::Sapling(note),
                         ..
                     } => {
-                        let transfer_type = if external_address.is_some() { TransferType::Incoming } else { TransferType::WalletInternal };
+                        //let transfer_type = if external_address.is_some() { TransferType::Incoming } else { TransferType::WalletInternal };
                         wallet::sapling::put_received_note(
                             wdb.conn.0,
                             &DecryptedOutput::new(
@@ -1383,7 +1383,8 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
                                 output
                                     .memo()
                                     .map_or_else(MemoBytes::empty, |memo| memo.clone()),
-                                transfer_type,
+                          //      transfer_type,
+                                TransferType::WalletInternal,
                             ),
                             tx_ref,
                             None,
