@@ -1155,8 +1155,9 @@ where
     //TODO: quickfix change for verus for discoverability of change outputs in daemon
     let sapling_external_ivk =
         PreparedIncomingViewingKey::new(&sapling_dfvk.to_ivk(Scope::External));
-    let sapling_outputs =
-        sapling_output_meta
+//    let _ = decrypt_and_store_transction(build_result.transaction())?;
+
+    let sapling_outputs = sapling_output_meta
             .into_iter()
             .enumerate()
             .map(|(i, (recipient, value, memo))| {
@@ -1177,14 +1178,18 @@ where
                                     &bundle.shielded_outputs()[output_index],
                                     zip212_enforcement(params, min_target_height),
                                 )
-                                .map(|(note, _, _)| Note::Sapling(note))
                             })
-                    })
+                                .map(|(note, _, _)| Note::Sapling(note))
+
+                            //})
+                     })
                     .internal_account_note_transpose_option()
                     .expect("Wallet-internal outputs must be decryptable with the wallet's IVK");
+   //              decrypt_and_store_transaction(transaction)?;    
 
                 SentTransactionOutput::from_parts(output_index, recipient, value, memo)
             });
+
 
 /*    let sapling_internal_ivk =
         PreparedIncomingViewingKey::new(&sapling_dfvk.to_ivk(Scope::Internal));

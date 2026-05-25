@@ -77,7 +77,11 @@ impl ReceivedSaplingOutput for DecryptedOutput<sapling::Note, AccountId> {
         Some(self.memo())
     }
     fn is_change(&self) -> bool {
-        self.transfer_type() == TransferType::WalletInternal
+        let ret = match self.transfer_type() {
+            TransferType::WalletInternal | TransferType::Incoming => true,
+            _ => false,
+        };
+        ret
     }
     fn nullifier(&self) -> Option<&sapling::Nullifier> {
         None
