@@ -1062,7 +1062,7 @@ where
 
         match change_value.output_pool() {
             ShieldedProtocol::Sapling => {
-                // Verus compatibility mode:
+                //TODO: verus quickfix
                 let change_addr = sapling_dfvk.default_address().1;
 
                 builder.add_sapling_output(
@@ -1164,13 +1164,12 @@ where
                 )
             });
 
-    // Verus compatibility mode:
-    // change is intentionally external scoped.
+
+    //TODO: verus quickfix
     let sapling_external_ivk =
         PreparedIncomingViewingKey::new(
             &sapling_dfvk.to_ivk(Scope::External)
         );
-
 
     let sapling_outputs =
         sapling_output_meta
@@ -1183,6 +1182,39 @@ where
                     .expect(
                         "An output should exist in the transaction for each Sapling payment."
                     );
+
+                let recipient = match recipient {
+                    Recipient::Sapling(addr) => {
+                        let decrypted_note = build_result
+                            .transaction()
+                            .sapling_bundle()
+                            .and_then(|bundle| {
+                                try_sapling_note_decryption(
+                                    &sapling_external_ivk,
+                                    &bundle.shielded_outputs()[output_index],
+                                    zip212_enforcement(
+                                        params,
+                                        min_target_height,
+                                    ),
+                                )
+                            })
+                            .map(|(note, _, _)| note);
+
+                        match decrypted_note {
+                            Some(note) if note.recipient() == addr => {
+                                Recipient::InternalAccount {
+                                    receiving_account: account,
+                                    external_address: None,
+                                    note: Note::Sapling(note),
+                                }
+                            }
+
+                            _ => Recipient::Sapling(addr),
+                        }
+                    }
+
+                    other => other,
+                };
 
                 SentTransactionOutput::from_parts(
                     output_index,
