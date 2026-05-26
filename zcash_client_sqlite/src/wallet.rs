@@ -2423,12 +2423,23 @@ pub(crate) fn put_tx_data(
         "INSERT INTO transactions (txid, created, expiry_height, raw, fee)
         VALUES (:txid, :created_at, :expiry_height, :raw, :fee)
         ON CONFLICT (txid) DO UPDATE
+        SET created = COALESCE(transactions.created, excluded.created),
+            expiry_height = :expiry_height,
+            raw = :raw,
+            fee = IFNULL(:fee, fee)
+        RETURNING id_tx",
+    )?;
+/*
+    let mut stmt_upsert_tx_data = conn.prepare_cached(
+        "INSERT INTO transactions (txid, created, expiry_height, raw, fee)
+        VALUES (:txid, :created_at, :expiry_height, :raw, :fee)
+        ON CONFLICT (txid) DO UPDATE
         SET expiry_height = :expiry_height,
             raw = :raw,
             fee = IFNULL(:fee, fee)
         RETURNING id_tx",
     )?;
-
+*/
     let txid = tx.txid();
     let mut raw_tx = vec![];
     tx.write(&mut raw_tx)?;

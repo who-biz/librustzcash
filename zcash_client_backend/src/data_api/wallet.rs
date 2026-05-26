@@ -1072,11 +1072,20 @@ where
                     memo.clone(),
                 )?;
 
-                sapling_output_meta.push((
-                    Recipient::Sapling(change_addr),
+               sapling_output_meta.push((
+                    Recipient::InternalAccount {
+                        receiving_account: account,
+                        external_address: None,
+                        note: PoolType::Shielded(ShieldedProtocol::Sapling),
+                    },
                     change_value.value(),
                     Some(memo),
                 ));
+                /*sapling_output_meta.push((
+                    Recipient::Sapling(change_addr),
+                    change_value.value(),
+                    Some(memo),
+                ));*/
             }
 
             ShieldedProtocol::Orchard => {
@@ -1183,9 +1192,16 @@ where
                         "An output should exist in the transaction for each Sapling payment."
                     );
 
-                let recipient = match recipient {
-                    Recipient::Sapling(addr) => {
-                        let decrypted_note = build_result
+
+                let recipient = recipient
+                    .map_internal_account_note(|pool| {
+                        assert!(
+                            pool == PoolType::Shielded(
+                                ShieldedProtocol::Sapling
+                            )
+                        );
+
+                        build_result
                             .transaction()
                             .sapling_bundle()
                             .and_then(|bundle| {
@@ -1197,24 +1213,15 @@ where
                                         min_target_height,
                                     ),
                                 )
+                                .map(|(note, _, _)| {
+                                    Note::Sapling(note)
+                                })
                             })
-                            .map(|(note, _, _)| note);
-
-                        match decrypted_note {
-                            Some(note) if note.recipient() == addr => {
-                                Recipient::InternalAccount {
-                                    receiving_account: account,
-                                    external_address: None,
-                                    note: Note::Sapling(note),
-                                }
-                            }
-
-                            _ => Recipient::Sapling(addr),
-                        }
-                    }
-
-                    other => other,
-                };
+                    })
+                    .internal_account_note_transpose_option()
+                    .expect(
+                        "Wallet-internal outputs must be decryptable with the wallet's IVK"
+                    );
 
                 SentTransactionOutput::from_parts(
                     output_index,

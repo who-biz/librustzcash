@@ -1150,26 +1150,39 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
                         )?;
                     }
                     TransferType::Incoming => {
-                        wallet::sapling::put_received_note(wdb.conn.0, output, tx_ref, None)?;
+                        wallet::sapling::put_received_note(
+                            wdb.conn.0,
+                            output,
+                            tx_ref,
+                            None,
+                        )?;
+
+                        //TODO: verus quickfix
+                        let already_local_change =
+                            funding_account == Some(*output.account());
 
                         if let Some(account_id) = funding_account {
-                            let recipient = Recipient::InternalAccount {
-                                receiving_account: *output.account(),
-                                // TODO: recover the actual UA, if possible
-                                external_address: Some(Address::Sapling(output.note().recipient())),
-                                note: Note::Sapling(output.note().clone()),
-                            };
+                            if !already_local_change {
+                                let recipient = Recipient::InternalAccount {
+                                    receiving_account: *output.account(),
+                                    // TODO: recover the actual UA, if possible
+                                    external_address: Some(Address::Sapling(
+                                        output.note().recipient(),
+                                    )),
+                                    note: Note::Sapling(output.note().clone()),
+                                };
 
-                            wallet::put_sent_output(
-                                wdb.conn.0,
-                                &wdb.params,
-                                account_id,
-                                tx_ref,
-                                output.index(),
-                                &recipient,
-                                output.note_value(),
-                                Some(output.memo()),
-                            )?;
+                                wallet::put_sent_output(
+                                    wdb.conn.0,
+                                    &wdb.params,
+                                    account_id,
+                                    tx_ref,
+                                    output.index(),
+                                    &recipient,
+                                    output.note_value(),
+                                    Some(output.memo()),
+                                )?;
+                            }
                         }
                     }
                 }
