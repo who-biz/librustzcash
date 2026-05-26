@@ -78,7 +78,7 @@ impl ReceivedSaplingOutput for DecryptedOutput<sapling::Note, AccountId> {
     }
     fn is_change(&self) -> bool {
         let ret = match self.transfer_type() {
-            TransferType::WalletInternal | TransferType::Incoming => true,
+            TransferType::WalletInternal /*| TransferType::Incoming*/ => true,
             _ => false,
         };
         ret
