@@ -144,7 +144,7 @@ pub fn decrypt_transaction<'a, P: consensus::Parameters, AccountId: Copy>(
                                             output.out_ciphertext(),
                                         ).is_some() {
                                         //{
-                                            TransferType::Incoming
+                                            TransferType::WalletInternal
                                         } else {
                                             TransferType::Incoming
                                         };
