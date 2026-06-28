@@ -1060,7 +1060,7 @@ where
 
                     sapling_output_meta.push((
                         Recipient::SaplingIncomingChange {
-                            change_addr,
+                            address: change_addr,
                             note: PoolType::Shielded(ShieldedProtocol::Sapling),                            
                         },
                         change_value.value(),
