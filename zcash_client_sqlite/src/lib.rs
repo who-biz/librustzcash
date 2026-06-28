@@ -1174,7 +1174,10 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
                     }
                     TransferType::IncomingChange => {
                         wallet::sapling::put_received_note(wdb.conn.0, output, tx_ref, None)?;
-                        let recipient = Recipient::Sapling(output.note().recipient());
+                        let recipient = Recipient::SaplingIncomingChange {
+                            address: output.note().recipient(),
+                            note: Note::Sapling(output.note().clone()),
+                        };
                         wallet::put_sent_output(
                             wdb.conn.0,
                             &wdb.params,
