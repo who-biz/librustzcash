@@ -1050,9 +1050,10 @@ where
                 #[cfg(feature = "external-change-scope")]
                 {
                     // Verus compatibility mode:
+                    let change_addr = sapling_dfvk.default_address().1;
                     builder.add_sapling_output(
                         sapling_external_ovk,
-                        sapling_dfvk.default_address().1,
+                        change_addr,
                         change_value.value(),
                         memo.clone(),
                     )?;
