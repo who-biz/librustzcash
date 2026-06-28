@@ -696,9 +696,6 @@ where
         .ok_or(Error::KeyNotRecognized)?
         .id();
 
-    //TODO: quickfix for verus change
-    //let mut input_address_for_change = None;
-
     let (sapling_anchor, sapling_inputs) =
         if proposal_step.involves(PoolType::Shielded(ShieldedProtocol::Sapling)) {
             proposal_step.shielded_inputs().map_or_else(
@@ -714,11 +711,8 @@ where
                             .iter()
                             .filter_map(|selected| match selected.note() {
                                 Note::Sapling(note) => {
-                                    //input_address_for_change = Some(note.recipient());
                                     let key = match selected.spending_key_scope() {
                                         Scope::External => usk.sapling().clone(),
-                                        //TODO: hotfix for verus compatability, revert when we add internal key scopes
-                                        //Scope::Internal => usk.sapling().clone(),
                                         Scope::Internal => usk.sapling().derive_internal(),
                                     };
 
@@ -850,7 +844,6 @@ where
                 utxo.txout().clone(),
             )?;
         }
-
         for input_ref in proposal_step.prior_step_inputs() {
             match input_ref.output_index() {
                 proposal::StepOutputIndex::Payment(i) => {
@@ -871,9 +864,6 @@ where
                         _ => None,
                     }
                     .ok_or(Error::ProposalNotSupported)?;
-                    //TODO: quickfix for verus change outputs
-                    input_address_for_change = recipient_address;
-
                     let outpoint = OutPoint::new(
                         result.transaction().txid().into(),
                         u32::try_from(
@@ -947,10 +937,6 @@ where
             ));
         }
 
-        //TODO: I don't believe this is relevant or necessary, for change discoverability, for standard z-txfers, so reverted hotfix
-     
-        //TODO: hotfix for verus release, we will weigh OVK usage wrt internal scope in time
-        //Some(sapling_dfvk.to_ovk(Scope::External))
         Some(sapling_dfvk.to_ovk(Scope::Internal))
     };
 
@@ -1059,180 +1045,44 @@ where
         let memo = change_value
             .memo()
             .map_or_else(MemoBytes::empty, |m| m.clone());
-
         match change_value.output_pool() {
             ShieldedProtocol::Sapling => {
-                // Verus compatibility mode:
-                let change_addr = sapling_dfvk.default_address().1;
-
-                builder.add_sapling_output(
-                    sapling_external_ovk,
-                    change_addr,
-                    change_value.value(),
-                    memo.clone(),
-                )?;
-
-                sapling_output_meta.push((
-                    Recipient::Sapling(change_addr),
-                    change_value.value(),
-                    Some(memo),
-                ));
-            }
-
-            ShieldedProtocol::Orchard => {
-                #[cfg(not(feature = "orchard"))]
-                return Err(Error::UnsupportedChangeType(
-                    PoolType::Shielded(ShieldedProtocol::Orchard),
-                ));
-
-                #[cfg(feature = "orchard")]
+                #[cfg(feature = "external-change-scope")]
                 {
-                    builder.add_orchard_output(
-                        orchard_internal_ovk(),
-                        orchard_fvk.address_at(0u32, orchard::keys::Scope::Internal),
-                        change_value.value().into(),
+                    // Verus compatibility mode:
+                    builder.add_sapling_output(
+                        sapling_external_ovk,
+                        sapling_dfvk.default_address().1,
+                        change_value.value(),
                         memo.clone(),
                     )?;
 
-                    orchard_output_meta.push((
+                    sapling_output_meta.push((
+                        Recipient::Sapling(change_addr),
+                        change_value.value(),
+                        Some(memo),
+                    ))
+                }
+                #[cfg(not(feature = "external-change-scope"))]
+                {
+                    builder.add_sapling_output(
+                        sapling_internal_ovk(),
+                        sapling_dfvk.change_address().1,
+                        change_value.value(),
+                        memo.clone(),
+                    )?;
+                    sapling_output_meta.push((
                         Recipient::InternalAccount {
                             receiving_account: account,
                             external_address: None,
-                            note: PoolType::Shielded(ShieldedProtocol::Orchard),
+                            note: PoolType::Shielded(ShieldedProtocol::Sapling),
                         },
                         change_value.value(),
                         Some(memo),
                     ))
                 }
             }
-        }
-    }
 
-    // Build the transaction with the specified fee rule
-    let build_result = builder.build(
-        OsRng,
-        spend_prover,
-        output_prover,
-        fee_rule,
-    )?;
-
-    #[cfg(feature = "orchard")]
-    let orchard_internal_ivk =
-        orchard_fvk.to_ivk(orchard::keys::Scope::Internal);
-
-    #[cfg(feature = "orchard")]
-    let orchard_outputs =
-        orchard_output_meta
-            .into_iter()
-            .enumerate()
-            .map(|(i, (recipient, value, memo))| {
-                let output_index = build_result
-                    .orchard_meta()
-                    .output_action_index(i)
-                    .expect(
-                        "An action should exist in the transaction for each Orchard output."
-                    );
-
-                let recipient = recipient
-                    .map_internal_account_note(|pool| {
-                        assert!(
-                            pool == PoolType::Shielded(ShieldedProtocol::Orchard)
-                        );
-
-                        build_result
-                            .transaction()
-                            .orchard_bundle()
-                            .and_then(|bundle| {
-                                bundle
-                                    .decrypt_output_with_key(
-                                        output_index,
-                                        &orchard_internal_ivk,
-                                    )
-                                    .map(|(note, _, _)| Note::Orchard(note))
-                            })
-                    })
-                    .internal_account_note_transpose_option()
-                    .expect(
-                        "Wallet-internal outputs must be decryptable with the wallet's IVK"
-                    );
-
-                SentTransactionOutput::from_parts(
-                    output_index,
-                    recipient,
-                    value,
-                    memo,
-                )
-            });
-
-    // Verus compatibility mode:
-    // change is intentionally external scoped.
-    let sapling_external_ivk =
-        PreparedIncomingViewingKey::new(
-            &sapling_dfvk.to_ivk(Scope::External)
-        );
-
-
-    let sapling_outputs =
-        sapling_output_meta
-            .into_iter()
-            .enumerate()
-            .map(|(i, (recipient, value, memo))| {
-                let output_index = build_result
-                    .sapling_meta()
-                    .output_index(i)
-                    .expect(
-                        "An output should exist in the transaction for each Sapling payment."
-                    );
-
-                SentTransactionOutput::from_parts(
-                    output_index,
-                    recipient,
-                    value,
-                    memo,
-                )
-            });
-
-/*    for change_value in proposal_step.balance().proposed_change() {
-        let memo = change_value
-            .memo()
-            .map_or_else(MemoBytes::empty, |m| m.clone());
-        match change_value.output_pool() {
-            ShieldedProtocol::Sapling => {
-                builder.add_sapling_output(
-                    //TODO: this is a quick fix for verus, since we do not have internal scopes in the legacy codebase
-                    //sapling_internal_ovk(),
-                    // changing this to internal_ovk is causing duplicate amounts to display, seems ovk recovery & ivk are both happening for this case
-                    sapling_external_ovk,
-                    //TODO: this is a quick fix for verus, since we do not have internal scopes in the legacy codebase
-                    sapling_dfvk.default_address().1,
-                    //sapling_dfvk.change_address().1,
-                    change_value.value(),
-                    memo.clone(),
-                )?;
-*/
-
-//start commented
-/*                sapling_output_meta.push((
-                    Recipient::Sapling(sapling_dfvk.default_address().1),
-                    change_value.value(),
-                    Some(memo),
-                ))
-*/
-//endcommented
-
-/*
-                sapling_output_meta.push((
-                    Recipient::InternalAccount {
-                        receiving_account: account,
-                        external_address: Some(Address::Sapling(sapling_dfvk.default_address().1)),
-                        note: PoolType::Shielded(ShieldedProtocol::Sapling),
-                    },
-                    //Recipient::Sapling(sapling_dfvk.default_address().1),
-                    change_value.value(),
-                    Some(memo),
-                ))
-                
-            }
             ShieldedProtocol::Orchard => {
                 #[cfg(not(feature = "orchard"))]
                 return Err(Error::UnsupportedChangeType(PoolType::Shielded(
@@ -1295,81 +1145,45 @@ where
                 SentTransactionOutput::from_parts(output_index, recipient, value, memo)
             });
 
-    //TODO: quickfix change for verus for discoverability of change outputs in daemon
-    let sapling_external_ivk =
-        PreparedIncomingViewingKey::new(&sapling_dfvk.to_ivk(Scope::External));
-//    let _ = decrypt_and_store_transction(build_result.transaction())?;
+
+    let sapling_internal_ivk =
+         PreparedIncomingViewingKey::new(&sapling_dfvk.to_ivk(Scope::Internal));
 
     let sapling_outputs = sapling_output_meta
-            .into_iter()
-            .enumerate()
-            .map(|(i, (recipient, value, memo))| {
-                let output_index = build_result
-                    .sapling_meta()
-                    .output_index(i)
-                    .expect("An output should exist in the transaction for each Sapling payment.");
+        .into_iter()
+        .enumerate()
+        .map(|(i, (recipient, value, memo))| {
+            let output_index = build_result
+                .sapling_meta()
+                .output_index(i)
+                .expect(
+                    "An output should exist in the transaction for each Sapling payment."
+                );
 
-                let recipient = recipient
-                    .map_internal_account_note(|pool| {
-                        assert!(pool == PoolType::Shielded(ShieldedProtocol::Sapling));
-                        build_result
-                            .transaction()
-                            .sapling_bundle()
-                            .and_then(|bundle| {
-                                try_sapling_note_decryption(
-                                    &sapling_external_ivk,
-                                    &bundle.shielded_outputs()[output_index],
-                                    zip212_enforcement(params, min_target_height),
-                                )
-                            })
-                                .map(|(note, _, _)| Note::Sapling(note))
+            #[cfg(feature = "external-change-scope")]
+            let recipient = recipient;
 
-                            //})
-                     })
-                    .internal_account_note_transpose_option()
-                    .expect("Wallet-internal outputs must be decryptable with the wallet's IVK");
-                 //decrypt_and_store_transaction(transaction)?;    
+            #[cfg(not(feature = "external-change-scope"))]
+            let recipient = recipient
+                .map_internal_account_note(|pool| {
+                    assert!(pool == PoolType::Shielded(ShieldedProtocol::Sapling));
+                    build_result
+                        .transaction()
+                        .sapling_bundle()
+                        .and_then(|bundle| {
+                            try_sapling_note_decryption(
+                                &sapling_internal_ivk,
+                                &bundle.shielded_outputs()[output_index],
+                                zip212_enforcement(params, min_target_height),
+                            )
+                            .map(|(note, _, _)| Note::Sapling(note))
+                        })
+                 })
+                 .internal_account_note_transpose_option()
+                 .expect("Wallet-internal outputs must be decryptable with the wallet's IVK");
 
-                SentTransactionOutput::from_parts(output_index, recipient, value, memo)
-            });
-
-*/
-
-//start commented
-/*    let sapling_internal_ivk =
-        PreparedIncomingViewingKey::new(&sapling_dfvk.to_ivk(Scope::Internal));
-    let sapling_outputs =
-        sapling_output_meta
-            .into_iter()
-            .enumerate()
-            .map(|(i, (recipient, value, memo))| {
-                let output_index = build_result
-                    .sapling_meta()
-                    .output_index(i)
-                    .expect("An output should exist in the transaction for each Sapling payment.");
-
-                let recipient = recipient
-                    .map_internal_account_note(|pool| {
-                        assert!(pool == PoolType::Shielded(ShieldedProtocol::Sapling));
-                        build_result
-                            .transaction()
-                            .sapling_bundle()
-                            .and_then(|bundle| {
-                                try_sapling_note_decryption(
-                                    &sapling_internal_ivk,
-                                    &bundle.shielded_outputs()[output_index],
-                                    zip212_enforcement(params, min_target_height),
-                                )
-                                .map(|(note, _, _)| Note::Sapling(note))
-                            })
-                    })
-                    .internal_account_note_transpose_option()
-                    .expect("Wallet-internal outputs must be decryptable with the wallet's IVK");
-
-                SentTransactionOutput::from_parts(output_index, recipient, value, memo)
-            });
-*/
-//endcommented
+            SentTransactionOutput::from_parts(output_index, recipient, value, memo)
+        });
 
     let transparent_outputs = transparent_output_meta.into_iter().map(|(addr, value)| {
         let script = addr.script();
@@ -1397,7 +1211,6 @@ where
     wallet_db
         .store_sent_tx(&SentTransaction {
             tx: build_result.transaction(),
-            //TODO: check why this is displaying a 0 timestamp in mobile wallet
             created: time::OffsetDateTime::now_utc(),
             account,
             outputs,

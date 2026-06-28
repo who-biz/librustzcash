@@ -172,6 +172,9 @@ unstable-serialization = ["dep:byteorder"]
 ## Exposes the [`data_api::scanning::spanning_tree`] module.
 unstable-spanning-tree = []
 
+## Uses default address for sapling change (externally scoped)
+external-change-scope = []
+
 [lib]
 bench = false
 
