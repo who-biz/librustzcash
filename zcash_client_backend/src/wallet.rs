@@ -70,6 +70,10 @@ impl NoteId {
 pub enum Recipient<AccountId, N> {
     Transparent(TransparentAddress),
     Sapling(sapling::PaymentAddress),
+    SaplingIncomingChange {
+        address: sapling::PaymentAddress,
+        note: N,
+    },
     Unified(UnifiedAddress, PoolType),
     InternalAccount {
         receiving_account: AccountId,
@@ -83,6 +87,13 @@ impl<AccountId, N> Recipient<AccountId, N> {
         match self {
             Recipient::Transparent(t) => Recipient::Transparent(t),
             Recipient::Sapling(s) => Recipient::Sapling(s),
+            Recipient::SaplingIncomingChange {
+               address,
+               note,
+            } => Recipient::SaplingIncomingChange {
+               address,
+               note: f(note),
+            },
             Recipient::Unified(u, p) => Recipient::Unified(u, p),
             Recipient::InternalAccount {
                 receiving_account,
@@ -102,6 +113,13 @@ impl<AccountId, N> Recipient<AccountId, Option<N>> {
         match self {
             Recipient::Transparent(t) => Some(Recipient::Transparent(t)),
             Recipient::Sapling(s) => Some(Recipient::Sapling(s)),
+            Recipient::SaplingIncomingChange {
+                address,
+                note,
+            } => note.map(|n0| Recipient::SaplingIncomingChange {
+                address,
+                note: n0,
+            }),
             Recipient::Unified(u, p) => Some(Recipient::Unified(u, p)),
             Recipient::InternalAccount {
                 receiving_account,

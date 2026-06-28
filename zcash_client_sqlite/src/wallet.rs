@@ -2572,6 +2572,14 @@ fn recipient_params<P: consensus::Parameters>(
             None,
             PoolType::Shielded(ShieldedProtocol::Sapling),
         ),
+        Recipient::SaplingIncomingChange{
+            address,
+            ..
+        } => (
+            Some(address.encode(params)),
+            None,
+            PoolType::Shielded(ShieldedProtocol::Sapling),
+        ),
         Recipient::Unified(addr, pool) => (Some(addr.encode(params)), None, *pool),
         Recipient::InternalAccount {
             receiving_account,

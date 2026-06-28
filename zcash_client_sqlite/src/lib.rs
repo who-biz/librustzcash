@@ -1172,6 +1172,20 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
                             )?;
                         }
                     }
+                    TransferType::IncomingChange => {
+                        wallet::sapling::put_received_note(wdb.conn.0, output, tx_ref, None)?;
+                        let recipient = Recipient::Sapling(output.note().recipient());
+                        wallet::put_sent_output(
+                            wdb.conn.0,
+                            &wdb.params,
+                            *output.account(),
+                            tx_ref,
+                            output.index(),
+                            &recipient,
+                            output.note_value(),
+                            Some(output.memo()),
+                        )?;
+                    }
                 }
             }
 
@@ -1369,11 +1383,10 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
                 match output.recipient() {
                     Recipient::InternalAccount {
                         receiving_account,
-                        external_address,
+                    //    external_address,
                         note: Note::Sapling(note),
                         ..
                     } => {
-                        let transfer_type = if external_address.is_some() { TransferType::Incoming } else { TransferType::WalletInternal };
                         wallet::sapling::put_received_note(
                             wdb.conn.0,
                             &DecryptedOutput::new(
@@ -1383,12 +1396,32 @@ impl<P: consensus::Parameters> WalletWrite for WalletDb<rusqlite::Connection, P>
                                 output
                                     .memo()
                                     .map_or_else(MemoBytes::empty, |memo| memo.clone()),
-                                transfer_type,
+                                TransferType::WalletInternal,
                             ),
                             tx_ref,
                             None,
                         )?;
                     }
+                    Recipient::SaplingIncomingChange{
+                        address: _,
+                        note: Note::Sapling(note)
+                    } => {
+                        wallet::sapling::put_received_note(
+                            wdb.conn.0,
+                            &DecryptedOutput::new(
+                                output.output_index(),
+                                note.clone(),
+                                *sent_tx.account_id(),
+                                output
+                                    .memo()
+                                    .map_or_else(MemoBytes::empty, |memo| memo.clone()),
+                                TransferType::IncomingChange,
+                            ),
+                            tx_ref,
+                            None,
+                        )?;
+                    }
+                      
                     #[cfg(feature = "orchard")]
                     Recipient::InternalAccount {
                         receiving_account,

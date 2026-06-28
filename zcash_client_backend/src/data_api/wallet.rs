@@ -1059,7 +1059,10 @@ where
                     )?;
 
                     sapling_output_meta.push((
-                        Recipient::Sapling(change_addr),
+                        Recipient::SaplingIncomingChange {
+                            change_addr,
+                            note: PoolType::Shielded(ShieldedProtocol::Sapling),                            
+                        },
                         change_value.value(),
                         Some(memo),
                     ))
@@ -1150,6 +1153,9 @@ where
     let sapling_internal_ivk =
          PreparedIncomingViewingKey::new(&sapling_dfvk.to_ivk(Scope::Internal));
 
+    let sapling_external_ivk =
+         PreparedIncomingViewingKey::new(&sapling_dfvk.to_ivk(Scope::External));
+
     let sapling_outputs = sapling_output_meta
         .into_iter()
         .enumerate()
@@ -1161,8 +1167,25 @@ where
                     "An output should exist in the transaction for each Sapling payment."
                 );
 
+//            let recipient = recipient;
             #[cfg(feature = "external-change-scope")]
-            let recipient = recipient;
+            let recipient = recipient
+                .map_internal_account_note(|pool| {
+                    assert!(pool == PoolType::Shielded(ShieldedProtocol::Sapling));
+                    build_result
+                        .transaction()
+                        .sapling_bundle()
+                        .and_then(|bundle| {
+                            try_sapling_note_decryption(
+                                &sapling_external_ivk,
+                                &bundle.shielded_outputs()[output_index],
+                                zip212_enforcement(params, min_target_height),
+                            )
+                            .map(|(note, _, _)| Note::Sapling(note))
+                        })
+                 })
+                 .internal_account_note_transpose_option()
+                 .expect("External change outputs must be decryptable with the wallet's external IVK");
 
             #[cfg(not(feature = "external-change-scope"))]
             let recipient = recipient
