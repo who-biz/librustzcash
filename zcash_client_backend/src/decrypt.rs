@@ -125,7 +125,7 @@ pub fn decrypt_transaction<'a, P: consensus::Parameters, AccountId: Copy>(
                         PreparedIncomingViewingKey::new(&dfvk.to_ivk(Scope::Internal));
 
                     let ovk_internal = dfvk.to_ovk(Scope::Internal);
-                    let external_change_ovk = dfvk.to_ovk(Scope::External);
+                    let ovk_external = dfvk.to_ovk(Scope::External);
 
                     bundle
                         .shielded_outputs()
@@ -133,11 +133,16 @@ pub fn decrypt_transaction<'a, P: consensus::Parameters, AccountId: Copy>(
                         .enumerate()
                         .flat_map(move |(index, output)| {
                             // first, try decrypting with external ivk
+
+                            //TODO: (Biz) if we don't omit middle argument of map (note,_,memo), we can return address
+                            // as well, on rescan for wallets. currently, we don't regenerate that information.
+                            // I do not see a reason this needs withheld for externally scoped key cases
+
                             try_note_decryption(&sapling_domain, &ivk_external, output).map(|(note, _, memo)| {
-                                //TODO: check if ovk recovery here is too expensive. we could theoretically remove it
+                                //TODO: is there a better way to structure these conditions?
                                 let is_change = try_output_recovery_with_ovk(
                                     &sapling_domain,
-                                    &external_change_ovk,
+                                    &ovk_external,
                                     output,
                                     output.cv(),
                                     output.out_ciphertext(),
@@ -156,7 +161,27 @@ pub fn decrypt_transaction<'a, P: consensus::Parameters, AccountId: Copy>(
                                     transfer_type,
                                 )
                             }).or_else(|| {
-                                    // external ivk did not work, try internal
+                                    // external ivk did not work, try external ovk recovery next
+                                try_output_recovery_with_ovk(
+                                    &sapling_domain,
+                                    &ovk_external,
+                                    output,
+                                    output.cv(),
+                                    output.out_ciphertext(),
+                                )
+                               .map(|(note, _, memo)| {
+                                   (
+                                       note,
+                                       memo,
+                                       TransferType::Outgoing,
+                                   )
+                                })
+                            }).or_else(|| {
+                                    // only try internal key decryptions if externally scoped do not work
+
+                                    //TODO: (Biz) if, at some point, we transition to preferring internal scope, order of
+                                    // these conditions should be flipped, to minimize decryption attempts. I'm not sure
+                                    // if a failed decrypt is as expensive as a successful one, likely not 
                                 try_note_decryption(
                                     &sapling_domain,
                                     &ivk_internal,
@@ -170,7 +195,7 @@ pub fn decrypt_transaction<'a, P: consensus::Parameters, AccountId: Copy>(
                                    )
                                 })
                             }).or_else(|| {
-                                // external & internal ivk did not work, try internal ovk recovery
+                                // external (ivk/ovk) & internal_ivk did not work, try internal ovk recovery
                                 try_output_recovery_with_ovk(
                                     &sapling_domain,
                                     &ovk_internal,
@@ -188,6 +213,7 @@ pub fn decrypt_transaction<'a, P: consensus::Parameters, AccountId: Copy>(
                             })
                             .into_iter()
                             .map(move |(note, memo, transfer_type)| {
+                                //TODO: (Biz) should we return Option<Address> in this as well, for decrypted recipients on rescan?
                                 DecryptedOutput::new(
                                     index,
                                     note,
